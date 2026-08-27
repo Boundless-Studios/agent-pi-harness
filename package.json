@@ -1,0 +1,44 @@
+{
+  "name": "@boundless-studios/agent-pi-harness",
+  "version": "0.1.0",
+  "description": "Portable Agent Pi lifecycle and governance harness",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --experimental-strip-types --test",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepack": "npm run build"
+  },
+  "exports": {
+    "./lifecycle": {
+      "types": "./dist/lifecycle.d.ts",
+      "default": "./dist/lifecycle.js"
+    },
+    "./warden": {
+      "types": "./dist/warden.d.ts",
+      "default": "./dist/warden.js"
+    },
+    "./skills": {
+      "types": "./dist/skills.d.ts",
+      "default": "./dist/skills.js"
+    },
+    "./project-adapter": {
+      "types": "./dist/project-adapter.d.ts",
+      "default": "./dist/project-adapter.js"
+    },
+    "./run-python": {
+      "types": "./dist/run-python.d.ts",
+      "default": "./dist/run-python.js"
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}
