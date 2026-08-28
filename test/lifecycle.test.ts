@@ -97,14 +97,14 @@ const acknowledgePendingBlock = withGaiaAdapter(acknowledgePendingBlockBase, 5);
 const acknowledgePendingBlockForPrompt = withGaiaAdapter(acknowledgePendingBlockForPromptBase, 5);
 const replayPendingCompletionBlock = withGaiaAdapter(replayPendingCompletionBlockBase, 5);
 
-test("gaia-lifecycle: tab states reuse the established iTerm color convention", () => {
+test("agent-pi-harness-lifecycle: tab states reuse the established iTerm color convention", () => {
   assert.deepEqual(
     (["ready", "working", "done", "needs_input"] as const).map(tabColorForState),
     ["blue", "yellow", "green", "red"],
   );
 });
 
-test("gaia-lifecycle: settled tab color distinguishes completion, re-engagement, and failure", () => {
+test("agent-pi-harness-lifecycle: settled tab color distinguishes completion, re-engagement, and failure", () => {
   assert.equal(tabColorAfterAgentSettled("completed"), "green");
   assert.equal(tabColorAfterAgentSettled("reengaged"), "red");
   assert.equal(tabColorAfterAgentSettled("blocked"), "red");
@@ -112,14 +112,14 @@ test("gaia-lifecycle: settled tab color distinguishes completion, re-engagement,
   assert.equal(tabColorAfterAgentSettled("agent_failed"), "red");
 });
 
-test("gaia-lifecycle: replay and dispatch failure stay red until work starts", () => {
+test("agent-pi-harness-lifecycle: replay and dispatch failure stay red until work starts", () => {
   assert.equal(tabColorForPendingReplay(true), "red");
   assert.equal(tabColorForPendingReplay(false), "blue");
   assert.equal(tabColorForAgentStart(true), "red");
   assert.equal(tabColorForAgentStart(false), "yellow");
 });
 
-test("gaia-lifecycle: errored or aborted agent runs require operator input", () => {
+test("agent-pi-harness-lifecycle: errored or aborted agent runs require operator input", () => {
   assert.equal(agentRunNeedsAttention([{ role: "assistant", stopReason: "error" }]), true);
   assert.equal(agentRunNeedsAttention([{ role: "assistant", stopReason: "aborted" }]), true);
   assert.equal(agentRunNeedsAttention([{ role: "assistant", stopReason: "length" }]), true);
@@ -127,7 +127,7 @@ test("gaia-lifecycle: errored or aborted agent runs require operator input", () 
   assert.equal(agentRunNeedsAttention([{ role: "user", stopReason: "error" }]), false);
 });
 
-test("gaia-lifecycle: recovered intermediate length stops do not fail the final run", () => {
+test("agent-pi-harness-lifecycle: recovered intermediate length stops do not fail the final run", () => {
   assert.equal(
     agentRunNeedsAttention([
       { role: "assistant", stopReason: "length", toolCall: "reengage" },
@@ -138,7 +138,7 @@ test("gaia-lifecycle: recovered intermediate length stops do not fail the final 
   );
 });
 
-test("gaia-lifecycle: operator status always links the worktree and optional PR", () => {
+test("agent-pi-harness-lifecycle: operator status always links the worktree and optional PR", () => {
   assert.equal(
     buildOperatorStatus("/tmp/pi-improvements"),
     "worktree: file:///tmp/pi-improvements",
@@ -152,7 +152,7 @@ test("gaia-lifecycle: operator status always links the worktree and optional PR"
   );
 });
 
-test("gaia-lifecycle: final summary uses the last assistant text", () => {
+test("agent-pi-harness-lifecycle: final summary uses the last assistant text", () => {
   assert.equal(
     finalAssistantSummary([
       { role: "assistant", content: [{ type: "text", text: "first" }] },
@@ -164,7 +164,7 @@ test("gaia-lifecycle: final summary uses the last assistant text", () => {
   assert.match(finalAssistantSummary([]), /without an assistant-authored summary/);
 });
 
-test("gaia-lifecycle: pending completion block survives and clears only on matching ack", () => {
+test("agent-pi-harness-lifecycle: pending completion block survives and clears only on matching ack", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   persistPendingBlock(cwd, "session/1", "settle CI");
   const pending = readPendingBlock(cwd, "session/1");
@@ -178,7 +178,7 @@ test("gaia-lifecycle: pending completion block survives and clears only on match
   assert.equal(readPendingBlock(cwd, "session/1"), undefined);
 });
 
-test("gaia-lifecycle: acknowledgement preserves a replacement dispatch", () => {
+test("agent-pi-harness-lifecycle: acknowledgement preserves a replacement dispatch", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const sessionId = "session/ack-race";
   persistPendingBlock(cwd, sessionId, "acknowledge first", "dispatch-first");
@@ -197,7 +197,7 @@ test("gaia-lifecycle: acknowledgement preserves a replacement dispatch", () => {
   assert.equal(readPendingBlock(cwd, sessionId)?.dispatch_id, "dispatch-replacement");
 });
 
-test("gaia-lifecycle: replay ack requires the matching user prompt", () => {
+test("agent-pi-harness-lifecycle: replay ack requires the matching user prompt", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   persistPendingBlock(cwd, "session/1", "settle CI", "dispatch-1");
   const pending = readPendingBlock(cwd, "session/1");
@@ -216,7 +216,7 @@ test("gaia-lifecycle: replay ack requires the matching user prompt", () => {
   assert.equal(readPendingBlock(cwd, "session/1"), undefined);
 });
 
-test("gaia-lifecycle: matching prompts consume the oldest dispatch identity", () => {
+test("agent-pi-harness-lifecycle: matching prompts consume the oldest dispatch identity", () => {
   const older = createPendingCompletionBlock(
     "session/ack-order",
     "same completion prompt",
@@ -234,7 +234,7 @@ test("gaia-lifecycle: matching prompts consume the oldest dispatch identity", ()
   assert.deepEqual(consumed.remaining.map((block) => block.dispatch_id), ["dispatch-newer"]);
 });
 
-test("gaia-lifecycle: delivery identities survive a runtime replacement", async () => {
+test("agent-pi-harness-lifecycle: delivery identities survive a runtime replacement", async () => {
   const lifecycle = await import("../src/lifecycle.js") as typeof import("../src/lifecycle.js") & {
     persistPendingBlockDelivery?: (
       cwd: string,
@@ -266,7 +266,7 @@ test("gaia-lifecycle: delivery identities survive a runtime replacement", async 
   );
 });
 
-test("gaia-lifecycle: queued delivery identities retain their branch scope", () => {
+test("agent-pi-harness-lifecycle: queued delivery identities retain their branch scope", () => {
   const block = createPendingCompletionBlock("session/branch-delivery", "same prompt", "dispatch-branch");
   const scoped = scopePendingBlockToBranch(block, "feature/replay");
 
@@ -277,7 +277,7 @@ test("gaia-lifecycle: queued delivery identities retain their branch scope", () 
   );
 });
 
-test("gaia-lifecycle: concurrent sessions keep independent pending completion blocks", () => {
+test("agent-pi-harness-lifecycle: concurrent sessions keep independent pending completion blocks", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   persistPendingBlock(cwd, "session/1", "settle first PR");
   persistPendingBlock(cwd, "session/2", "settle second PR");
@@ -292,7 +292,7 @@ test("gaia-lifecycle: concurrent sessions keep independent pending completion bl
   assert.equal(readPendingBlock(cwd, "session/2")?.message, "settle second PR");
 });
 
-test("gaia-lifecycle: a session atomically claims a legacy pending completion block", () => {
+test("agent-pi-harness-lifecycle: a session atomically claims a legacy pending completion block", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const legacyDirectory = join(cwd, ".gaia", "pi-finalization");
   mkdirSync(legacyDirectory, { recursive: true });
@@ -305,7 +305,7 @@ test("gaia-lifecycle: a session atomically claims a legacy pending completion bl
   assert.equal(readPendingBlock(cwd, "session/other"), undefined);
 });
 
-test("gaia-lifecycle: a claimed legacy block is persisted with recoverable ownership", () => {
+test("agent-pi-harness-lifecycle: a claimed legacy block is persisted with recoverable ownership", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const legacyDirectory = join(cwd, ".gaia", "pi-finalization");
   mkdirSync(legacyDirectory, { recursive: true });
@@ -334,7 +334,7 @@ test("gaia-lifecycle: a claimed legacy block is persisted with recoverable owner
   assert.equal(recovered?.session_id, "session/legacy-recovery");
 });
 
-test("gaia-lifecycle: a restarted launcher claims an orphaned session block", () => {
+test("agent-pi-harness-lifecycle: a restarted launcher claims an orphaned session block", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   persistPendingBlock(
     cwd,
@@ -352,7 +352,7 @@ test("gaia-lifecycle: a restarted launcher claims an orphaned session block", ()
   assert.equal(readPendingBlock(cwd, "session/before-restart"), undefined);
 });
 
-test("gaia-lifecycle: orphan recovery transfers the dead session budget", () => {
+test("agent-pi-harness-lifecycle: orphan recovery transfers the dead session budget", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const orphanSession = "session/with-budget";
   persistLifecycleBudget(cwd, orphanSession, 3, 2);
@@ -364,7 +364,7 @@ test("gaia-lifecycle: orphan recovery transfers the dead session budget", () => 
   assert.equal(readLifecycleBudget(cwd, "session/replacement")?.stop_dispatch_failure_count, 2);
 });
 
-test("gaia-lifecycle: lifecycle budgets reset when a worktree changes branches", () => {
+test("agent-pi-harness-lifecycle: lifecycle budgets reset when a worktree changes branches", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   execFileSync("git", ["init", "-q", "-b", "first"], { cwd });
   const sessionId = "session/branch-budget";
@@ -377,7 +377,7 @@ test("gaia-lifecycle: lifecycle budgets reset when a worktree changes branches",
   assert.equal(readLifecycleBudget(cwd, sessionId)?.reengage_count, 1);
 });
 
-test("gaia-lifecycle: orphan recovery records the new budget owner before source cleanup", () => {
+test("agent-pi-harness-lifecycle: orphan recovery records the new budget owner before source cleanup", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const sourceSession = "session/crashed-source";
   const targetSession = "session/replacement";
@@ -402,7 +402,7 @@ test("gaia-lifecycle: orphan recovery records the new budget owner before source
   assert.equal(readLifecycleBudget(cwd, sourceSession)?.reengage_count, 2);
 });
 
-test("gaia-lifecycle: orphan recovery adds independent target and source budgets", () => {
+test("agent-pi-harness-lifecycle: orphan recovery adds independent target and source budgets", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const sourceSession = "session/independent-source";
   const targetSession = "session/independent-target";
@@ -416,7 +416,7 @@ test("gaia-lifecycle: orphan recovery adds independent target and source budgets
   assert.equal(readLifecycleBudget(cwd, targetSession)?.stop_dispatch_failure_count, 7);
 });
 
-test("gaia-lifecycle: a retried budget transfer is exactly once", () => {
+test("agent-pi-harness-lifecycle: a retried budget transfer is exactly once", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const sourceSession = "session/retry-source";
   const targetSession = "session/retry-target";
@@ -446,7 +446,7 @@ test("gaia-lifecycle: a retried budget transfer is exactly once", () => {
   assert.equal(readLifecycleBudget(cwd, sourceSession), undefined);
 });
 
-test("gaia-lifecycle: an unowned schema-v1 session block remains untouched", () => {
+test("agent-pi-harness-lifecycle: an unowned schema-v1 session block remains untouched", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const directory = join(cwd, ".gaia", "pi-finalization");
   mkdirSync(directory, { recursive: true });
@@ -461,7 +461,7 @@ test("gaia-lifecycle: an unowned schema-v1 session block remains untouched", () 
   assert.equal(readFileSync(source, "utf8").includes("migrate me"), true);
 });
 
-test("gaia-lifecycle: orphan recovery distinguishes process incarnations", () => {
+test("agent-pi-harness-lifecycle: orphan recovery distinguishes process incarnations", () => {
   const ownerStart = processIncarnation(process.pid);
   assert.ok(ownerStart);
 
@@ -488,7 +488,7 @@ test("gaia-lifecycle: orphan recovery distinguishes process incarnations", () =>
   assert.equal(readOrphanedPendingBlock(liveCwd, "session/replacement"), undefined);
 });
 
-test("gaia-lifecycle: a dead orphan claim survives the staging filename", () => {
+test("agent-pi-harness-lifecycle: a dead orphan claim survives the staging filename", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const directory = join(cwd, ".gaia", "pi-finalization");
   const orphanSession = "session/staged-orphan";
@@ -514,7 +514,7 @@ test("gaia-lifecycle: a dead orphan claim survives the staging filename", () => 
   );
 });
 
-test("gaia-lifecycle: orphan recovery finds a block stranded in owner-refresh staging", () => {
+test("agent-pi-harness-lifecycle: orphan recovery finds a block stranded in owner-refresh staging", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const directory = join(cwd, ".gaia", "pi-finalization");
   const sourceSession = "session/refresh-staged-source";
@@ -540,7 +540,7 @@ test("gaia-lifecycle: orphan recovery finds a block stranded in owner-refresh st
   assert.equal(readPendingBlock(cwd, sourceSession), undefined);
 });
 
-test("gaia-lifecycle: refresh staging preserves the owner's process incarnation", () => {
+test("agent-pi-harness-lifecycle: refresh staging preserves the owner's process incarnation", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const directory = join(cwd, ".gaia", "pi-finalization");
   const sourceSession = "session/refresh-incarnation-source";
@@ -567,7 +567,7 @@ test("gaia-lifecycle: refresh staging preserves the owner's process incarnation"
   assert.equal(recovered?.session_id, targetSession);
 });
 
-test("gaia-lifecycle: refresh staging keeps a live process incarnation untouched", () => {
+test("agent-pi-harness-lifecycle: refresh staging keeps a live process incarnation untouched", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const directory = join(cwd, ".gaia", "pi-finalization");
   const sourceSession = "session/live-refresh-incarnation-source";
@@ -593,7 +593,7 @@ test("gaia-lifecycle: refresh staging keeps a live process incarnation untouched
   assert.equal(readFileSync(stagingPath, "utf8").includes("keep live refresh-incarnation block"), true);
 });
 
-test("gaia-lifecycle: orphan claims replace a stale destination without losing the block", () => {
+test("agent-pi-harness-lifecycle: orphan claims replace a stale destination without losing the block", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   execFileSync("git", ["init", "-q", "-b", "current"], { cwd });
   const directory = join(cwd, ".gaia", "pi-finalization");
@@ -620,7 +620,7 @@ test("gaia-lifecycle: orphan claims replace a stale destination without losing t
   assert.equal(readPendingBlock(cwd, targetSession)?.branch_name, "current");
 });
 
-test("gaia-lifecycle: a competing destination does not make a restored orphan look owned", () => {
+test("agent-pi-harness-lifecycle: a competing destination does not make a restored orphan look owned", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   execFileSync("git", ["init", "-q", "-b", "current"], { cwd });
   const directory = join(cwd, ".gaia", "pi-finalization");
@@ -664,7 +664,7 @@ test("gaia-lifecycle: a competing destination does not make a restored orphan lo
   assert.equal(readOrphanedPendingBlock(cwd, targetSession)?.dispatch_id, "dispatch-restored-orphan");
 });
 
-test("gaia-lifecycle: requeues a live-owned orphan claim after a competing transfer", () => {
+test("agent-pi-harness-lifecycle: requeues a live-owned orphan claim after a competing transfer", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const directory = join(cwd, ".gaia", "pi-finalization");
   const sourceSession = "session/requeue-source";
@@ -708,7 +708,7 @@ test("gaia-lifecycle: requeues a live-owned orphan claim after a competing trans
   assert.equal(replayed?.session_id, targetSession);
 });
 
-test("gaia-lifecycle: staged orphan claims finish budget transfer after a restart", () => {
+test("agent-pi-harness-lifecycle: staged orphan claims finish budget transfer after a restart", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const directory = join(cwd, ".gaia", "pi-finalization");
   const sourceSession = "session/budget-source";
@@ -743,7 +743,7 @@ test("gaia-lifecycle: staged orphan claims finish budget transfer after a restar
   assert.equal(readLifecycleBudget(cwd, sourceSession), undefined);
 });
 
-test("gaia-lifecycle: staged orphan claims finish Stop-order transfer after a restart", async () => {
+test("agent-pi-harness-lifecycle: staged orphan claims finish Stop-order transfer after a restart", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const directory = join(cwd, ".gaia", "pi-finalization");
   const sourceSession = "session/stop-order-staged-source";
@@ -806,7 +806,7 @@ test("gaia-lifecycle: staged orphan claims finish Stop-order transfer after a re
   assert.equal(existsSync(sourcePath), false);
 });
 
-test("gaia-lifecycle: failed Stop-order transfer requeues an orphan with dead ownership", async () => {
+test("agent-pi-harness-lifecycle: failed Stop-order transfer requeues an orphan with dead ownership", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const directory = join(cwd, ".gaia", "pi-finalization");
   const sourceSession = "session/stop-order-requeue-source";
@@ -878,7 +878,7 @@ test("gaia-lifecycle: failed Stop-order transfer requeues an orphan with dead ow
   assert.equal(readOrphanedPendingBlock(cwd, targetSession)?.session_id, targetSession);
 });
 
-test("gaia-lifecycle: replacement claims transfer from the current owner", () => {
+test("agent-pi-harness-lifecycle: replacement claims transfer from the current owner", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const directory = join(cwd, ".gaia", "pi-finalization");
   const sourceSession = "session/replacement-a";
@@ -911,7 +911,7 @@ test("gaia-lifecycle: replacement claims transfer from the current owner", () =>
   assert.equal(readLifecycleBudget(cwd, replacementSession), undefined);
 });
 
-test("gaia-lifecycle: a live schema-v1 claim remains untouched", () => {
+test("agent-pi-harness-lifecycle: a live schema-v1 claim remains untouched", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const directory = join(cwd, ".gaia", "pi-finalization");
   mkdirSync(directory, { recursive: true });
@@ -926,7 +926,7 @@ test("gaia-lifecycle: a live schema-v1 claim remains untouched", () => {
   assert.match(readFileSync(staging, "utf8"), /"message":"live"/);
 });
 
-test("gaia-lifecycle: orphan source claims are exclusive", () => {
+test("agent-pi-harness-lifecycle: orphan source claims are exclusive", () => {
   const source = "/tmp/pending-block-source.json";
   const claimedSources = new Set<string>();
   const atomicRename = (candidate: string, _destination: string): void => {
@@ -938,7 +938,7 @@ test("gaia-lifecycle: orphan source claims are exclusive", () => {
   assert.equal(claimOrphanedPendingBlock(source, "/tmp/session-two.json", atomicRename), false);
 });
 
-test("gaia-lifecycle: orphan recovery leaves a live owner's block untouched", () => {
+test("agent-pi-harness-lifecycle: orphan recovery leaves a live owner's block untouched", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   persistPendingBlock(
     cwd,
@@ -952,7 +952,7 @@ test("gaia-lifecycle: orphan recovery leaves a live owner's block untouched", ()
   assert.equal(readPendingBlock(cwd, "session/live")?.message, "settle the live PR");
 });
 
-test("gaia-lifecycle: orphan recovery skips blocks from another branch", () => {
+test("agent-pi-harness-lifecycle: orphan recovery skips blocks from another branch", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   execFileSync("git", ["init", "-q", "-b", "current"], { cwd });
   persistPendingBlock(
@@ -976,7 +976,7 @@ test("gaia-lifecycle: orphan recovery skips blocks from another branch", () => {
   assert.equal(readFileSync(source, "utf8").includes("settle the old branch"), true);
 });
 
-test("gaia-lifecycle: replay never claims another active session's block", () => {
+test("agent-pi-harness-lifecycle: replay never claims another active session's block", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const sentMessages: string[] = [];
   persistPendingBlock(cwd, "session/other", "settle the other PR", "dispatch-other");
@@ -992,7 +992,7 @@ test("gaia-lifecycle: replay never claims another active session's block", () =>
   assert.equal(readPendingBlock(cwd, "session/other")?.message, "settle the other PR");
 });
 
-test("gaia-lifecycle: direct replay rejects a block from another branch", () => {
+test("agent-pi-harness-lifecycle: direct replay rejects a block from another branch", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   execFileSync("git", ["init", "-q", "-b", "current"], { cwd });
   const sessionId = "session/branch-replay";
@@ -1017,7 +1017,7 @@ test("gaia-lifecycle: direct replay rejects a block from another branch", () => 
   assert.deepEqual(sentMessages, []);
 });
 
-test("gaia-lifecycle: same-session legacy blocks migrate before branch filtering", () => {
+test("agent-pi-harness-lifecycle: same-session legacy blocks migrate before branch filtering", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   execFileSync("git", ["init", "-q", "-b", "current"], { cwd });
   const sessionId = "session/same-session-legacy";
@@ -1047,7 +1047,7 @@ test("gaia-lifecycle: same-session legacy blocks migrate before branch filtering
   assert.equal(migrated.branch_name, "current");
 });
 
-test("gaia-lifecycle: an older blocked Stop preserves a newer pending block", async () => {
+test("agent-pi-harness-lifecycle: an older blocked Stop preserves a newer pending block", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const sessionId = "session/blocked-stop-order";
   const userMessages: string[] = [];
@@ -1087,7 +1087,7 @@ test("gaia-lifecycle: an older blocked Stop preserves a newer pending block", as
   assert.equal(readPendingBlock(cwd, sessionId)?.dispatch_id, "dispatch-newer-block");
 });
 
-test("gaia-lifecycle: orphan recovery carries Stop ordering into the replacement session", async () => {
+test("agent-pi-harness-lifecycle: orphan recovery carries Stop ordering into the replacement session", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const sourceSession = "session/orphan-order-source";
   const targetSession = "session/orphan-order-target";
@@ -1118,7 +1118,7 @@ test("gaia-lifecycle: orphan recovery carries Stop ordering into the replacement
   assert.equal(readPendingBlock(cwd, targetSession), undefined);
 });
 
-test("gaia-lifecycle: stale completion delivery leaves a typed replay record for the next runtime", () => {
+test("agent-pi-harness-lifecycle: stale completion delivery leaves a typed replay record for the next runtime", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const message = "pi-completion-gate: open a PR before finishing";
 
@@ -1142,7 +1142,7 @@ test("gaia-lifecycle: stale completion delivery leaves a typed replay record for
   assert.match(String(record.dispatch_id), /^[a-f0-9]{64}$/);
 });
 
-test("gaia-lifecycle: an accepted delivery marker is deduped until acknowledgement", () => {
+test("agent-pi-harness-lifecycle: an accepted delivery marker is deduped until acknowledgement", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   persistPendingBlock(cwd, "session/old", "open a PR", "dispatch-1");
   const pending = readPendingBlock(cwd, "session/new", "session/old");
@@ -1159,7 +1159,7 @@ test("gaia-lifecycle: an accepted delivery marker is deduped until acknowledgeme
   assert.equal(readPendingBlock(cwd, "session/new"), undefined);
 });
 
-test("gaia-lifecycle: replay submission stays unmarked until Pi accepts the prompt", () => {
+test("agent-pi-harness-lifecycle: replay submission stays unmarked until Pi accepts the prompt", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   persistPendingBlock(cwd, "session/old", "open a PR", "dispatch-1");
   let sendCount = 0;
@@ -1187,7 +1187,7 @@ test("gaia-lifecycle: replay submission stays unmarked until Pi accepts the prom
   assert.equal(sendCount, 2);
 });
 
-test("gaia-lifecycle: replacement replay can acknowledge a stale delivery marker", () => {
+test("agent-pi-harness-lifecycle: replacement replay can acknowledge a stale delivery marker", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   persistPendingBlock(cwd, "session/replaced", "open a PR", "dispatch-stale-marker");
   const pending = readPendingBlock(cwd, "session/replaced");
@@ -1206,7 +1206,7 @@ test("gaia-lifecycle: replacement replay can acknowledge a stale delivery marker
   assert.equal(readPendingBlock(cwd, "session/new"), undefined);
 });
 
-test("gaia-lifecycle: replay refreshes ownership before submitting a replacement prompt", () => {
+test("agent-pi-harness-lifecycle: replay refreshes ownership before submitting a replacement prompt", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const sessionId = "session/replay-owner-refresh";
   persistPendingBlock(
@@ -1230,7 +1230,7 @@ test("gaia-lifecycle: replay refreshes ownership before submitting a replacement
   assert.equal(readPendingBlock(cwd, sessionId)?.owner_pid, process.pid);
 });
 
-test("gaia-lifecycle: an accepted queued replay stays in flight until consumption", () => {
+test("agent-pi-harness-lifecycle: an accepted queued replay stays in flight until consumption", () => {
   const pending = createPendingCompletionBlock("session/new", "open a PR", "dispatch-1");
 
   assert.equal(shouldAttemptPendingBlockReplay(pending, pending, 0, 60_000), false);
@@ -1238,7 +1238,7 @@ test("gaia-lifecycle: an accepted queued replay stays in flight until consumptio
   assert.equal(shouldAttemptPendingBlockReplay(pending, undefined, 60_001, 60_001), true);
 });
 
-test("gaia-lifecycle: replacement runtime inherits active turn and stale runtime cannot clear it", () => {
+test("agent-pi-harness-lifecycle: replacement runtime inherits active turn and stale runtime cannot clear it", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const sessionId = "session/active-turn";
   const pending = createPendingCompletionBlock(sessionId, "open a PR", "dispatch-1");
@@ -1261,7 +1261,7 @@ test("gaia-lifecycle: replacement runtime inherits active turn and stale runtime
   assert.equal(readActiveTurn(cwd, sessionId), undefined);
 });
 
-test("gaia-lifecycle: inherited deliveries receive a fresh retry deadline", () => {
+test("agent-pi-harness-lifecycle: inherited deliveries receive a fresh retry deadline", () => {
   const sourcePath = fileURLToPath(new URL("../src/lifecycle.ts", import.meta.url));
   const source = readFileSync(sourcePath, "utf-8");
   const sessionStart = source.slice(
@@ -1279,7 +1279,7 @@ test("gaia-lifecycle: inherited deliveries receive a fresh retry deadline", () =
   );
 });
 
-test("gaia-lifecycle: a dead active-turn owner is not adopted by a replacement", () => {
+test("agent-pi-harness-lifecycle: a dead active-turn owner is not adopted by a replacement", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const sessionId = "session/dead-active-turn";
   persistActiveTurn(cwd, sessionId, "runtime/dead", "turn/dead", 10);
@@ -1298,7 +1298,7 @@ test("gaia-lifecycle: a dead active-turn owner is not adopted by a replacement",
   assert.equal(readActiveTurn(cwd, sessionId), undefined);
 });
 
-test("gaia-lifecycle: a rejected quiet delivery becomes retryable after its grace period", () => {
+test("agent-pi-harness-lifecycle: a rejected quiet delivery becomes retryable after its grace period", () => {
   const pending = createPendingCompletionBlock("session/new", "open a PR", "dispatch-1");
 
   assert.equal(shouldRetryPendingBlockDelivery(pending, true, 5_000, 5_000), false);
@@ -1306,7 +1306,7 @@ test("gaia-lifecycle: a rejected quiet delivery becomes retryable after its grac
   assert.equal(shouldRetryPendingBlockDelivery(pending, false, 5_000, 5_000), true);
 });
 
-test("gaia-lifecycle: user-message consumption extracts only exact text prompts", () => {
+test("agent-pi-harness-lifecycle: user-message consumption extracts only exact text prompts", () => {
   assert.equal(userMessageText({ role: "assistant", content: "open a PR" }), undefined);
   assert.equal(userMessageText({ role: "user", content: "open a PR" }), "open a PR");
   assert.equal(
@@ -1322,7 +1322,7 @@ test("gaia-lifecycle: user-message consumption extracts only exact text prompts"
   );
 });
 
-test("gaia-lifecycle: replay probe sees a completion block persisted after session start", () => {
+test("agent-pi-harness-lifecycle: replay probe sees a completion block persisted after session start", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const sentMessages: string[] = [];
   const send = (content: string): boolean => {
@@ -1344,21 +1344,21 @@ test("gaia-lifecycle: replay probe sees a completion block persisted after sessi
   assert.deepEqual(sentMessages, ["open a PR"]);
 });
 
-test("gaia-lifecycle: replay probe covers the full Stop dispatch dependency budget", () => {
+test("agent-pi-harness-lifecycle: replay probe covers the full Stop dispatch dependency budget", () => {
   // Stop hooks allow 15s + 10s + a 5s git_repo probe + 15s, plus margin.
   assert.ok(PENDING_BLOCK_REPLAY_MAX_ATTEMPTS * 100 >= 50_000);
   assert.ok(PENDING_BLOCK_REPLAY_MAX_ATTEMPTS * 100 <= 60_000);
   assert.equal(PENDING_BLOCK_ORPHAN_RECOVERY_INTERVAL_MS, 5_000);
 });
 
-test("gaia-lifecycle: delayed orphan recovery starts a fresh replay window", () => {
+test("agent-pi-harness-lifecycle: delayed orphan recovery starts a fresh replay window", () => {
   const state = resetPendingBlockReplayState(45_000);
   assert.equal(state.attempts, 0);
   assert.equal(state.started_at, 45_000);
   assert.equal(state.last_orphan_recovery_at, 0);
 });
 
-test("gaia-lifecycle: a newly persisted block restarts the replay attempt budget", () => {
+test("agent-pi-harness-lifecycle: a newly persisted block restarts the replay attempt budget", () => {
   assert.deepEqual(resetPendingBlockReplayState(123_456), {
     attempts: 0,
     started_at: 123_456,
@@ -1366,7 +1366,7 @@ test("gaia-lifecycle: a newly persisted block restarts the replay attempt budget
   });
 });
 
-test("gaia-lifecycle: only completion blocks receive durable dispatch identity", async () => {
+test("agent-pi-harness-lifecycle: only completion blocks receive durable dispatch identity", async () => {
   const completionBlocks: unknown[] = [];
   const advisoryMessages: string[] = [];
   const handlers = createLifecycleHandlers({
@@ -1394,7 +1394,7 @@ test("gaia-lifecycle: only completion blocks receive durable dispatch identity",
   assert.deepEqual(advisoryMessages, ["input blocked"]);
 });
 
-test("gaia-lifecycle: PR status refresh is limited to delivery-changing commands", () => {
+test("agent-pi-harness-lifecycle: PR status refresh is limited to delivery-changing commands", () => {
   assert.equal(shouldRefreshOperatorStatus(fakeToolResultEvent({ input: { command: "git push" } })), true);
   assert.equal(
     shouldRefreshOperatorStatus(fakeToolResultEvent({ input: { command: "gh pr create --fill" } })),
@@ -1421,7 +1421,7 @@ function fakeToolResultEvent(overrides: Partial<{
   };
 }
 
-test("gaia-lifecycle: caps re-engage sendUserMessage at 5 blocked agent_settled events", async () => {
+test("agent-pi-harness-lifecycle: caps re-engage sendUserMessage at 5 blocked agent_settled events", async () => {
   const sentMessages: string[] = [];
   const handlers = createLifecycleHandlers({
     runDispatch: async () => stubDispatchResult({ block: true, block_reason: "still working" }),
@@ -1440,7 +1440,7 @@ test("gaia-lifecycle: caps re-engage sendUserMessage at 5 blocked agent_settled 
   assert.deepEqual(outcomes, ["reengaged", "reengaged", "reengaged", "reengaged", "reengaged", "blocked"]);
 });
 
-test("gaia-lifecycle: red tab color is written before automatic re-engagement", async () => {
+test("agent-pi-harness-lifecycle: red tab color is written before automatic re-engagement", async () => {
   const events: string[] = [];
   const handlers = createLifecycleHandlers({
     runDispatch: async () => stubDispatchResult({ block: true, block_reason: "still working" }),
@@ -1459,7 +1459,7 @@ test("gaia-lifecycle: red tab color is written before automatic re-engagement", 
   assert.deepEqual(events, ["red", "send"]);
 });
 
-test("gaia-lifecycle: session_start resets the re-engage counter", async () => {
+test("agent-pi-harness-lifecycle: session_start resets the re-engage counter", async () => {
   const sentMessages: string[] = [];
   const handlers = createLifecycleHandlers({
     runDispatch: async (event) =>
@@ -1484,7 +1484,7 @@ test("gaia-lifecycle: session_start resets the re-engage counter", async () => {
   assert.equal(sentMessages.length, REENGAGE_LIMIT + 1);
 });
 
-test("gaia-lifecycle: replacement runtime restores the persisted Stop-failure budget", async () => {
+test("agent-pi-harness-lifecycle: replacement runtime restores the persisted Stop-failure budget", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const failing = async () => stubStopDispatchFailure("dispatch.py missing");
   const first = createLifecycleHandlers({
@@ -1511,7 +1511,7 @@ test("gaia-lifecycle: replacement runtime restores the persisted Stop-failure bu
   assert.equal(replacement.reengageCount(), 1);
 });
 
-test("gaia-lifecycle: concurrent runtimes accumulate durable budget increments", async () => {
+test("agent-pi-harness-lifecycle: concurrent runtimes accumulate durable budget increments", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const failing = async () => stubStopDispatchFailure("dispatch.py missing");
   const first = createLifecycleHandlers({
@@ -1538,7 +1538,7 @@ test("gaia-lifecycle: concurrent runtimes accumulate durable budget increments",
   assert.equal(budget?.stop_dispatch_failure_count, 2);
 });
 
-test("gaia-lifecycle: session_shutdown awaits the SessionEnd dispatch before resolving", async () => {
+test("agent-pi-harness-lifecycle: session_shutdown awaits the SessionEnd dispatch before resolving", async () => {
   let dispatchResolved = false;
   const handlers = createLifecycleHandlers({
     runDispatch: async (event) => {
@@ -1557,7 +1557,7 @@ test("gaia-lifecycle: session_shutdown awaits the SessionEnd dispatch before res
   assert.equal(dispatchResolved, true);
 });
 
-test("gaia-lifecycle: tool_result surfaces a block reason via sendMessage, never sendUserMessage", async () => {
+test("agent-pi-harness-lifecycle: tool_result surfaces a block reason via sendMessage, never sendUserMessage", async () => {
   const sentMessages: string[] = [];
   const userMessages: string[] = [];
   const handlers = createLifecycleHandlers({
@@ -1577,7 +1577,7 @@ test("gaia-lifecycle: tool_result surfaces a block reason via sendMessage, never
   assert.deepEqual(userMessages, []);
 });
 
-test("gaia-lifecycle: tool_result surfaces successful advisory stdout via sendMessage", async () => {
+test("agent-pi-harness-lifecycle: tool_result surfaces successful advisory stdout via sendMessage", async () => {
   const sentMessages: string[] = [];
   const handlers = createLifecycleHandlers({
     runDispatch: async () =>
@@ -1606,7 +1606,7 @@ test("gaia-lifecycle: tool_result surfaces successful advisory stdout via sendMe
   assert.match(sentMessages[0], /CHECKPOINT/);
 });
 
-test("gaia-lifecycle: tool_result stays silent when dispatch results carry no advisory output", async () => {
+test("agent-pi-harness-lifecycle: tool_result stays silent when dispatch results carry no advisory output", async () => {
   const sentMessages: string[] = [];
   const handlers = createLifecycleHandlers({
     runDispatch: async () =>
@@ -1626,7 +1626,7 @@ test("gaia-lifecycle: tool_result stays silent when dispatch results carry no ad
   assert.deepEqual(sentMessages, []);
 });
 
-test("gaia-lifecycle: session_start and session_shutdown surface teardown_warnings via appendEntry", async () => {
+test("agent-pi-harness-lifecycle: session_start and session_shutdown surface teardown_warnings via appendEntry", async () => {
   const appended: Array<{ customType: string; data: unknown }> = [];
   const handlers = createLifecycleHandlers({
     runDispatch: async (event) =>
@@ -1647,7 +1647,7 @@ test("gaia-lifecycle: session_start and session_shutdown surface teardown_warnin
   await handlers.onSessionShutdown("/tmp/project", {});
 
   assert.equal(appended.length, 2);
-  assert.equal(appended[0].customType, "gaia-lifecycle-teardown-warning");
+  assert.equal(appended[0].customType, "agent-pi-harness-lifecycle-teardown-warning");
   assert.deepEqual(appended[0].data, {
     source: "SessionStart",
     warnings: ["stale owner pid 123 still alive"],
@@ -1658,7 +1658,7 @@ test("gaia-lifecycle: session_start and session_shutdown surface teardown_warnin
   });
 });
 
-test("gaia-lifecycle: no appendEntry call when there are no teardown_warnings", async () => {
+test("agent-pi-harness-lifecycle: no appendEntry call when there are no teardown_warnings", async () => {
   const appended: unknown[] = [];
   const handlers = createLifecycleHandlers({
     runDispatch: async () => stubDispatchResult({}),
@@ -1681,7 +1681,7 @@ function stubStopDispatchFailure(message: string): DispatchResult {
   return stubDispatchResult({ teardown_warnings: [message] });
 }
 
-test("gaia-lifecycle: a Stop dispatch failure re-engages twice then releases on the third", async () => {
+test("agent-pi-harness-lifecycle: a Stop dispatch failure re-engages twice then releases on the third", async () => {
   const userMessages: string[] = [];
   const sentMessages: string[] = [];
   const handlers = createLifecycleHandlers({
@@ -1705,7 +1705,7 @@ test("gaia-lifecycle: a Stop dispatch failure re-engages twice then releases on 
   assert.equal(handlers.stopDispatchFailureCount(), STOP_DISPATCH_FAILURE_RELEASE_THRESHOLD);
 });
 
-test("gaia-lifecycle: Stop dispatch failures count against the shared REENGAGE_LIMIT cap", async () => {
+test("agent-pi-harness-lifecycle: Stop dispatch failures count against the shared REENGAGE_LIMIT cap", async () => {
   const userMessages: string[] = [];
   const handlers = createLifecycleHandlers({
     runDispatch: async () => stubStopDispatchFailure("dispatch.py missing"),
@@ -1722,7 +1722,7 @@ test("gaia-lifecycle: Stop dispatch failures count against the shared REENGAGE_L
   assert.equal(handlers.reengageCount(), STOP_DISPATCH_FAILURE_RELEASE_THRESHOLD - 1);
 });
 
-test("gaia-lifecycle: a healthy Stop dispatch resets the failure counter", async () => {
+test("agent-pi-harness-lifecycle: a healthy Stop dispatch resets the failure counter", async () => {
   let failing = true;
   const userMessages: string[] = [];
   const sentMessages: string[] = [];
@@ -1755,7 +1755,7 @@ test("gaia-lifecycle: a healthy Stop dispatch resets the failure counter", async
   assert.equal(handlers.stopDispatchFailureCount(), 2);
 });
 
-test("gaia-lifecycle: bounded Stop-failure release retires its pending prompt", async () => {
+test("agent-pi-harness-lifecycle: bounded Stop-failure release retires its pending prompt", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const sessionId = "session/stop-failure-release";
   const handlers = createLifecycleHandlers({
@@ -1784,7 +1784,7 @@ test("gaia-lifecycle: bounded Stop-failure release retires its pending prompt", 
   assert.equal(readPendingBlock(cwd, sessionId), undefined);
 });
 
-test("gaia-lifecycle: Stop-order allocation failures use bounded fail-closed release", async () => {
+test("agent-pi-harness-lifecycle: Stop-order allocation failures use bounded fail-closed release", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const sessionId = "session/stop-order-allocation-failure";
   const directory = join(cwd, ".gaia", "pi-finalization");
@@ -1839,7 +1839,7 @@ test("gaia-lifecycle: Stop-order allocation failures use bounded fail-closed rel
   rmSync(`${stopOrderPath}.fallback`, { recursive: true, force: true });
 });
 
-test("gaia-lifecycle: a fallback Stop order is persisted before blocking", async () => {
+test("agent-pi-harness-lifecycle: a fallback Stop order is persisted before blocking", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const sessionId = "session/fallback-stop-order";
   const directory = join(cwd, ".gaia", "pi-finalization");
@@ -1885,7 +1885,7 @@ test("gaia-lifecycle: a fallback Stop order is persisted before blocking", async
   rmSync(`${stopOrderPath}.lock`, { force: true });
 });
 
-test("gaia-lifecycle: a Stop allocation retains a concurrent fallback high-water mark", async () => {
+test("agent-pi-harness-lifecycle: a Stop allocation retains a concurrent fallback high-water mark", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const sessionId = "session/fallback-high-water-mark";
   const directory = join(cwd, ".gaia", "pi-finalization");
@@ -1915,7 +1915,7 @@ test("gaia-lifecycle: a Stop allocation retains a concurrent fallback high-water
   assert.equal(existsSync(fallbackPath), true);
 });
 
-test("gaia-lifecycle: a healthy Stop fails closed when its order cannot be recorded", async () => {
+test("agent-pi-harness-lifecycle: a healthy Stop fails closed when its order cannot be recorded", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const sessionId = "session/healthy-order-lock-timeout";
   const directory = join(cwd, ".gaia", "pi-finalization");
@@ -1968,7 +1968,7 @@ test("gaia-lifecycle: a healthy Stop fails closed when its order cannot be recor
   rmSync(`${stopOrderPath}.fallback`, { recursive: true, force: true });
 });
 
-test("gaia-lifecycle: interactive input clears stale Stop-dispatch failure state", async () => {
+test("agent-pi-harness-lifecycle: interactive input clears stale Stop-dispatch failure state", async () => {
   let stopDispatchFailing = true;
   const handlers = createLifecycleHandlers({
     runDispatch: async (event) =>
@@ -1990,7 +1990,7 @@ test("gaia-lifecycle: interactive input clears stale Stop-dispatch failure state
   stopDispatchFailing = false;
 });
 
-test("gaia-lifecycle: interactive input persists the Stop-failure reset", async () => {
+test("agent-pi-harness-lifecycle: interactive input persists the Stop-failure reset", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   execFileSync("git", ["init", "-q", "-b", "current"], { cwd });
   const sessionId = "session/persisted-input-reset";
@@ -2022,7 +2022,7 @@ test("gaia-lifecycle: interactive input persists the Stop-failure reset", async 
   assert.equal(handlers.stopDispatchFailureCount(), 1);
 });
 
-test("gaia-lifecycle: completed Stop settlement reclaims per-launch ordering state", async () => {
+test("agent-pi-harness-lifecycle: completed Stop settlement reclaims per-launch ordering state", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const sessionId = "session/cleanup-completed-state";
   const directory = join(cwd, ".gaia", "pi-finalization");
@@ -2044,7 +2044,7 @@ test("gaia-lifecycle: completed Stop settlement reclaims per-launch ordering sta
   assert.equal(existsSync(budgetPath), false);
 });
 
-test("gaia-lifecycle: non-terminal session replacement preserves lifecycle state", async () => {
+test("agent-pi-harness-lifecycle: non-terminal session replacement preserves lifecycle state", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const sessionId = "session/reload-preserves-state";
   const directory = join(cwd, ".gaia", "pi-finalization");
@@ -2069,7 +2069,7 @@ test("gaia-lifecycle: non-terminal session replacement preserves lifecycle state
   assert.equal(existsSync(budgetPath), false);
 });
 
-test("gaia-lifecycle: prompt acknowledgement preserves lifecycle budgets", () => {
+test("agent-pi-harness-lifecycle: prompt acknowledgement preserves lifecycle budgets", () => {
   const sourcePath = fileURLToPath(new URL("../src/lifecycle.ts", import.meta.url));
   const source = readFileSync(sourcePath, "utf-8");
   const acknowledgementStart = source.indexOf("function acknowledgeAwaitingBlock");
@@ -2082,7 +2082,7 @@ test("gaia-lifecycle: prompt acknowledgement preserves lifecycle budgets", () =>
   );
 });
 
-test("gaia-lifecycle: an older Stop failure is ignored after a newer healthy Stop", async () => {
+test("agent-pi-harness-lifecycle: an older Stop failure is ignored after a newer healthy Stop", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const sessionId = "session/stale-stop-failure";
   const userMessages: string[] = [];
@@ -2120,7 +2120,7 @@ test("gaia-lifecycle: an older Stop failure is ignored after a newer healthy Sto
   assert.equal(readPendingBlock(cwd, sessionId), undefined);
 });
 
-test("gaia-lifecycle: an older Stop failure preserves a newer pending block", async () => {
+test("agent-pi-harness-lifecycle: an older Stop failure preserves a newer pending block", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const sessionId = "session/newer-pending-stop-failure";
   const userMessages: string[] = [];
@@ -2165,7 +2165,7 @@ test("gaia-lifecycle: an older Stop failure preserves a newer pending block", as
   assert.equal(handlers.stopDispatchFailureCount(), 0);
 });
 
-test("gaia-lifecycle: an older Stop failure rechecks ordering after re-engagement preparation", async () => {
+test("agent-pi-harness-lifecycle: an older Stop failure rechecks ordering after re-engagement preparation", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const sessionId = "session/failed-stop-reengagement-race";
   const userMessages: string[] = [];
@@ -2222,7 +2222,7 @@ test("gaia-lifecycle: an older Stop failure rechecks ordering after re-engagemen
   assert.equal(readPendingBlock(cwd, sessionId), undefined);
 });
 
-test("gaia-lifecycle: an older healthy Stop preserves a newer failure budget", async () => {
+test("agent-pi-harness-lifecycle: an older healthy Stop preserves a newer failure budget", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const sessionId = "session/newer-stop-failure";
   let resolveOlder: ((result: DispatchResult) => void) | undefined;
@@ -2264,7 +2264,7 @@ test("gaia-lifecycle: an older healthy Stop preserves a newer failure budget", a
   assert.equal(readPendingBlock(cwd, sessionId)?.stop_order, 2);
 });
 
-test("gaia-lifecycle: a healthy Stop retires its superseded pending block", async () => {
+test("agent-pi-harness-lifecycle: a healthy Stop retires its superseded pending block", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const sessionId = "session/healthy-stop";
   persistPendingBlock(cwd, sessionId, "superseded completion", "dispatch-superseded", process.pid, undefined, 1);
@@ -2285,7 +2285,7 @@ test("gaia-lifecycle: a healthy Stop retires its superseded pending block", asyn
   assert.equal(readPendingBlock(cwd, sessionId), undefined);
 });
 
-test("gaia-lifecycle: extension input preserves pending Stop-dispatch failure state", async () => {
+test("agent-pi-harness-lifecycle: extension input preserves pending Stop-dispatch failure state", async () => {
   const handlers = createLifecycleHandlers({
     runDispatch: async (event) =>
       event === "Stop"
@@ -2303,7 +2303,7 @@ test("gaia-lifecycle: extension input preserves pending Stop-dispatch failure st
   assert.equal(handlers.stopDispatchFailureCount(), 2);
 });
 
-test("gaia-lifecycle: streaming input preserves pending Stop-dispatch failure state", async () => {
+test("agent-pi-harness-lifecycle: streaming input preserves pending Stop-dispatch failure state", async () => {
   const handlers = createLifecycleHandlers({
     runDispatch: async (event) =>
       event === "Stop"
@@ -2325,7 +2325,7 @@ test("gaia-lifecycle: streaming input preserves pending Stop-dispatch failure st
   assert.equal(handlers.stopDispatchFailureCount(), 2);
 });
 
-test("gaia-lifecycle: an older healthy Stop preserves a newer pending block", async () => {
+test("agent-pi-harness-lifecycle: an older healthy Stop preserves a newer pending block", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const sessionId = "session/healthy-stop-race";
   persistPendingBlock(
@@ -2354,7 +2354,7 @@ test("gaia-lifecycle: an older healthy Stop preserves a newer pending block", as
   assert.equal(readPendingBlock(cwd, sessionId)?.dispatch_id, "dispatch-newer");
 });
 
-test("gaia-lifecycle: an older blocked Stop cannot recreate a block after a newer healthy Stop", async () => {
+test("agent-pi-harness-lifecycle: an older blocked Stop cannot recreate a block after a newer healthy Stop", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const sessionId = "session/blocked-stop-race";
   const userMessages: string[] = [];
@@ -2393,7 +2393,7 @@ test("gaia-lifecycle: an older blocked Stop cannot recreate a block after a newe
   assert.equal(readPendingBlock(cwd, sessionId), undefined);
 });
 
-test("gaia-lifecycle: an older blocked Stop rechecks ordering after re-engagement preparation", async () => {
+test("agent-pi-harness-lifecycle: an older blocked Stop rechecks ordering after re-engagement preparation", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   const sessionId = "session/blocked-stop-reengagement-race";
   const userMessages: string[] = [];
@@ -2448,7 +2448,7 @@ test("gaia-lifecycle: an older blocked Stop rechecks ordering after re-engagemen
   assert.equal(readPendingBlock(cwd, sessionId)?.stop_order, 2);
 });
 
-test("gaia-lifecycle: a blocked Stop retains its invocation branch across dispatch", async () => {
+test("agent-pi-harness-lifecycle: a blocked Stop retains its invocation branch across dispatch", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-finalization-"));
   execFileSync("git", ["init", "-q", "-b", "before"], { cwd });
   const sessionId = "session/stop-branch-snapshot";
@@ -2494,7 +2494,7 @@ test("gaia-lifecycle: a blocked Stop retains its invocation branch across dispat
 
 // ── Stop advisory surfacing (PR 3535 review round 2 P2 finding G) ────────
 
-test("gaia-lifecycle: a non-blocking Stop dispatch surfaces advisory stderr via sendMessage", async () => {
+test("agent-pi-harness-lifecycle: a non-blocking Stop dispatch surfaces advisory stderr via sendMessage", async () => {
   const sentMessages: string[] = [];
   const handlers = createLifecycleHandlers({
     runDispatch: async () =>
@@ -2522,7 +2522,7 @@ test("gaia-lifecycle: a non-blocking Stop dispatch surfaces advisory stderr via 
   assert.match(sentMessages[0], /leaked artifact/);
 });
 
-test("gaia-lifecycle: a blocking Stop dispatch surfaces only the block reason, not the advisory", async () => {
+test("agent-pi-harness-lifecycle: a blocking Stop dispatch surfaces only the block reason, not the advisory", async () => {
   const userMessages: string[] = [];
   const sentMessages: string[] = [];
   const handlers = createLifecycleHandlers({
@@ -2583,10 +2583,10 @@ test("toolResponseFromEvent extracts text content and the error flag", () => {
 // ── Stale-runtime resilience (drive-run finding, BOU-3084/PR 3541) ──────
 //
 // Live repro: a plain `pi -p --approve "..."` run in this repo throws
-// "Extension error (.pi/extensions/gaia-lifecycle.ts): This extension ctx
+// "Extension error (.pi/extensions/agent-pi-harness-lifecycle.ts): This extension ctx
 // is stale after session replacement or reload." on every invocation —
 // root-caused to pi-subagents' periodic background-work snapshot replacing
-// the runtime mid-session while gaia-lifecycle's SessionEnd handler is
+// the runtime mid-session while agent-pi-harness-lifecycle's SessionEnd handler is
 // still awaiting dispatch.py, so its post-await `pi.appendEntry` call fires
 // against an already-invalidated captured `pi`.
 
@@ -2608,7 +2608,7 @@ test("safePiCall swallows a stale-runtime error and logs instead of throwing", (
     console.error = originalConsoleError;
   }
   assert.deepEqual(logged, [
-    ["[gaia-lifecycle] appendEntry skipped — extension runtime went stale"],
+    ["[agent-pi-harness-lifecycle] appendEntry skipped — extension runtime went stale"],
   ]);
 });
 
@@ -2631,7 +2631,7 @@ test("isStaleRuntimeError only matches Pi's exact stale-runtime error text", () 
   assert.equal(isStaleRuntimeError("not an Error instance"), false);
 });
 
-test("gaia-lifecycle.ts never calls a captured pi.sendMessage/sendUserMessage/appendEntry outside safePiCall", () => {
+test("agent-pi-harness-lifecycle.ts never calls a captured pi.sendMessage/sendUserMessage/appendEntry outside safePiCall", () => {
   // Pragmatic lint-level static check (finding text's own suggestion): every
   // direct `pi.<method>(` call site in the default export must be wrapped by
   // `safePiCall(...)`, since ALL of them happen after an `await` on the far
@@ -2659,14 +2659,14 @@ test("gaia-lifecycle.ts never calls a captured pi.sendMessage/sendUserMessage/ap
   assert.deepEqual(bareCallLines, []);
 });
 
-test("gaia-lifecycle: replay acknowledgement waits for message_start consumption", () => {
+test("agent-pi-harness-lifecycle: replay acknowledgement waits for message_start consumption", () => {
   const sourcePath = fileURLToPath(new URL("../src/lifecycle.ts", import.meta.url));
   const source = readFileSync(sourcePath, "utf-8");
   assert.equal(source.includes('pi.on("before_agent_start"'), false);
   assert.equal(source.includes('pi.on("message_start"'), true);
 });
 
-test("gaia-lifecycle: replay acknowledgement restarts the follow-on scan window", () => {
+test("agent-pi-harness-lifecycle: replay acknowledgement restarts the follow-on scan window", () => {
   const sourcePath = fileURLToPath(new URL("../src/lifecycle.ts", import.meta.url));
   const source = readFileSync(sourcePath, "utf-8");
   const acknowledgementStart = source.indexOf("function acknowledgeAwaitingBlock");
@@ -2679,7 +2679,7 @@ test("gaia-lifecycle: replay acknowledgement restarts the follow-on scan window"
   );
 });
 
-test("gaia-lifecycle: replay polling reuses a session branch snapshot", () => {
+test("agent-pi-harness-lifecycle: replay polling reuses a session branch snapshot", () => {
   const sourcePath = fileURLToPath(new URL("../src/lifecycle.ts", import.meta.url));
   const source = readFileSync(sourcePath, "utf-8");
   assert.match(
@@ -2689,7 +2689,7 @@ test("gaia-lifecycle: replay polling reuses a session branch snapshot", () => {
   assert.match(source, /replayBranchName = currentBranchName\(projectCwd\)/);
 });
 
-test("gaia-lifecycle: input leaves tab color changes to agent_start", () => {
+test("agent-pi-harness-lifecycle: input leaves tab color changes to agent_start", () => {
   const sourcePath = fileURLToPath(new URL("../src/lifecycle.ts", import.meta.url));
   const source = readFileSync(sourcePath, "utf-8");
   const inputHandler = source.slice(source.indexOf('pi.on("input"'), source.indexOf('pi.on("agent_settled"'));
@@ -2698,7 +2698,7 @@ test("gaia-lifecycle: input leaves tab color changes to agent_start", () => {
   assert.match(inputHandler, /handlers\.onInput\(projectCwd/);
 });
 
-test("gaia-lifecycle: pending replay colors red before polling the replay", () => {
+test("agent-pi-harness-lifecycle: pending replay colors red before polling the replay", () => {
   const sourcePath = fileURLToPath(new URL("../src/lifecycle.ts", import.meta.url));
   const source = readFileSync(sourcePath, "utf-8");
   const sessionStart = source.slice(source.indexOf('pi.on("session_start"'), source.indexOf('pi.on("session_shutdown"'));

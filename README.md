@@ -8,6 +8,10 @@ commands are supplied through the frozen `ProjectAdapterV1` contract.
 npm install @boundless-studios/agent-pi-harness
 ```
 
+The host project must provide the exact supported
+`@earendil-works/pi-coding-agent@0.84.2` peer. Keeping Pi as a peer preserves a
+single runtime and module identity across the host and these extensions.
+
 The package exposes the lifecycle entry point at `.`, plus `./lifecycle`,
 `./warden`, `./skills`, `./project-adapter`, `./run-python`, and the library
 subpaths. A project can pass a validated adapter to the lifecycle, warden, and
@@ -56,7 +60,8 @@ npm run consumer-smoke
 npm pack --dry-run
 ```
 
-The runtime preserves the extracted behavior from Gaia parent revision
+The runtime originates from Gaia parent revision
 `a6fafb8c4c^` (`198ca51c8775eef0942e494f3fce363f2edc8558`); the historical
 parity fixture in `test/fixtures/historical-parity.json` records that source
-attribution and the exported-behavior checks.
+attribution. The package now owns its public exports and behavioral tests; it
+does not pin evolving package sources to hashes from the extraction date.

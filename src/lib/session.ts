@@ -1,7 +1,7 @@
 // Pi harness parity PR 2 (docs/plans/evaluate-harness-shift.md Step 4).
 //
-// Shared session-id resolution used by both gaia-lifecycle.ts and
-// gaia-warden.ts's PreToolUse dispatch (PR 3535 review round 2 P1 finding C)
+// Shared session-id resolution used by both agent-pi-harness-lifecycle.ts and
+// agent-pi-harness-warden.ts's PreToolUse dispatch (PR 3535 review round 2 P1 finding C)
 // so the synthesized dispatch.py payload carries the same session identity
 // regardless of which extension built it.
 

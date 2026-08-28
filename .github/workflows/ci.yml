@@ -26,3 +26,7 @@ jobs:
         run: npm run build
       - name: Run tests
         run: npm test
+      - name: Test packed-package consumer
+        run: npm run consumer-smoke
+      - name: Verify publish contents
+        run: npm pack --dry-run

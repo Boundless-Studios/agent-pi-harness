@@ -1,8 +1,8 @@
 // Pi harness parity PR 2 (docs/plans/evaluate-harness-shift.md Step 4).
 //
 // Shared dispatch.py invocation, result shape, and advisory-surfacing
-// helpers used by BOTH gaia-lifecycle.ts (PostToolUse/Stop/UserPromptSubmit/
-// SessionStart/SessionEnd) and gaia-warden.ts (PreToolUse, PR 3535 review
+// helpers used by BOTH agent-pi-harness-lifecycle.ts (PostToolUse/Stop/UserPromptSubmit/
+// SessionStart/SessionEnd) and agent-pi-harness-warden.ts (PreToolUse, PR 3535 review
 // round 2 P1 finding C) — extracted here so neither extension duplicates the
 // other's dispatch.py subprocess contract or its advisory-text formatting.
 
@@ -38,7 +38,7 @@ export function isDispatchResult(value: unknown): value is DispatchResult {
  * hook. `teardown_warnings` is otherwise only ever populated by dispatch.py
  * itself on SessionStart/SessionEnd, so a non-empty entry here on any other
  * event is a reliable, shape-preserving signal that this synthetic result —
- * not a real dispatch.py output — was returned (consumed by gaia-warden.ts's
+ * not a real dispatch.py output — was returned (consumed by agent-pi-harness-warden.ts's
  * PreToolUse bounded-release counter, PR 3535 review round 2 P1 finding C). */
 export function emptyDispatchResult(teardownWarning?: string): DispatchResult {
   return {

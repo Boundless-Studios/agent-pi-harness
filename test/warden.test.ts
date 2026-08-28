@@ -38,7 +38,7 @@ function allowingDispatch(): Promise<DispatchResult> {
   return Promise.resolve(stubDispatch({}));
 }
 
-test("gaia-warden: allows when gate.py returns decision=allow and PreToolUse dispatch is clean", async () => {
+test("agent-pi-harness-warden: allows when gate.py returns decision=allow and PreToolUse dispatch is clean", async () => {
   const handlers = createWardenHandlers({
     runPythonImpl: async () =>
       stubResult({
@@ -51,7 +51,7 @@ test("gaia-warden: allows when gate.py returns decision=allow and PreToolUse dis
   const result = await handlers.handleBashToolCall("gmake test", "/tmp/project");
   assert.equal(result, undefined);
 });
-test("gaia-warden: blocks when gate.py returns decision=block, never reaching dispatch", async () => {
+test("agent-pi-harness-warden: blocks when gate.py returns decision=block, never reaching dispatch", async () => {
   const handlers = createWardenHandlers({
     runPythonImpl: async () =>
       stubResult({
@@ -72,7 +72,7 @@ test("gaia-warden: blocks when gate.py returns decision=block, never reaching di
   });
 });
 
-test("gaia-warden: fails closed on a non-zero gate.py exit, never reaching dispatch", async () => {
+test("agent-pi-harness-warden: fails closed on a non-zero gate.py exit, never reaching dispatch", async () => {
   const handlers = createWardenHandlers({
     runPythonImpl: async () => stubResult({ code: 1, stderr: "gate.py crashed" }),
     runDispatchImpl: unreachableDispatch,
@@ -84,7 +84,7 @@ test("gaia-warden: fails closed on a non-zero gate.py exit, never reaching dispa
   assert.match(result?.reason ?? "", /gate\.py exited 1/);
 });
 
-test("gaia-warden: fails closed on unparseable gate.py stdout", async () => {
+test("agent-pi-harness-warden: fails closed on unparseable gate.py stdout", async () => {
   const handlers = createWardenHandlers({
     runPythonImpl: async () => stubResult({ stdout: "not json" }),
     runDispatchImpl: unreachableDispatch,
@@ -96,7 +96,7 @@ test("gaia-warden: fails closed on unparseable gate.py stdout", async () => {
   assert.match(result?.reason ?? "", /unparseable/);
 });
 
-test("gaia-warden: fails closed when stdout parses but has the wrong shape", async () => {
+test("agent-pi-harness-warden: fails closed when stdout parses but has the wrong shape", async () => {
   const handlers = createWardenHandlers({
     runPythonImpl: async () => stubResult({ stdout: JSON.stringify({ decision: "maybe" }) }),
     runDispatchImpl: unreachableDispatch,
@@ -108,7 +108,7 @@ test("gaia-warden: fails closed when stdout parses but has the wrong shape", asy
   assert.match(result?.reason ?? "", /unexpected payload shape/);
 });
 
-test("gaia-warden: releases after N consecutive gate.py extension-level failures, never on a policy block", async () => {
+test("agent-pi-harness-warden: releases after N consecutive gate.py extension-level failures, never on a policy block", async () => {
   const sent: string[] = [];
   const handlers = createWardenHandlers({
     runPythonImpl: async () => stubResult({ code: 1, stderr: "python3 unlaunchable" }),
@@ -134,7 +134,7 @@ test("gaia-warden: releases after N consecutive gate.py extension-level failures
   assert.match(sent[0], /released after 3 consecutive gate failures/);
 });
 
-test("gaia-warden: a well-formed gate.py decision resets gateFailureCount even when the command is a prefilter no-op", async () => {
+test("agent-pi-harness-warden: a well-formed gate.py decision resets gateFailureCount even when the command is a prefilter no-op", async () => {
   // PR 3541 review finding (P1, third round): a healthy gate.py call is
   // proof the GATE boundary recovered regardless of whether the command
   // goes on to invoke dispatch.py at all — reaching dispatch.py is a
@@ -160,7 +160,7 @@ test("gaia-warden: a well-formed gate.py decision resets gateFailureCount even w
   assert.equal(handlers.dispatchFailureCount(), 0);
 });
 
-test("gaia-warden: a clean dispatch.py round trip resets dispatchFailureCount independent of gateFailureCount", async () => {
+test("agent-pi-harness-warden: a clean dispatch.py round trip resets dispatchFailureCount independent of gateFailureCount", async () => {
   let dispatchTeardownWarnings: string[] = ["dispatch.py exited 1: boom"];
   const handlers = createWardenHandlers({
     runPythonImpl: async () =>
@@ -184,7 +184,7 @@ test("gaia-warden: a clean dispatch.py round trip resets dispatchFailureCount in
   assert.equal(handlers.dispatchFailureCount(), 0);
 });
 
-test("gaia-warden: onSessionStart resets gateFailureCount", async () => {
+test("agent-pi-harness-warden: onSessionStart resets gateFailureCount", async () => {
   const handlers = createWardenHandlers({
     runPythonImpl: async () => stubResult({ code: 1, stderr: "crashed" }),
     runDispatchImpl: unreachableDispatch,
@@ -200,7 +200,7 @@ test("gaia-warden: onSessionStart resets gateFailureCount", async () => {
   assert.equal(handlers.dispatchFailureCount(), 0);
 });
 
-test("gaia-warden: onSessionStart resets a nonzero dispatchFailureCount too", async () => {
+test("agent-pi-harness-warden: onSessionStart resets a nonzero dispatchFailureCount too", async () => {
   const handlers = createWardenHandlers({
     runPythonImpl: async () =>
       stubResult({ stdout: JSON.stringify({ decision: "allow", reason: "", rule: "ok" }) }),
@@ -258,7 +258,7 @@ test("couldMatchAnyPreToolUseSpec: detects option-bearing and absolute git commi
 
 // ── PreToolUse dispatch wiring (PR 3535 review round 2 P1 finding C) ──────
 
-test("gaia-warden: a PreToolUse dispatch block propagates as a tool-call block", async () => {
+test("agent-pi-harness-warden: a PreToolUse dispatch block propagates as a tool-call block", async () => {
   const handlers = createWardenHandlers({
     runPythonImpl: async () =>
       stubResult({ stdout: JSON.stringify({ decision: "allow", reason: "", rule: "ok" }) }),
@@ -274,7 +274,7 @@ test("gaia-warden: a PreToolUse dispatch block propagates as a tool-call block",
   });
 });
 
-test("gaia-warden: a non-blocking PreToolUse advisory surfaces via sendMessage", async () => {
+test("agent-pi-harness-warden: a non-blocking PreToolUse advisory surfaces via sendMessage", async () => {
   const sent: string[] = [];
   const handlers = createWardenHandlers({
     runPythonImpl: async () =>
@@ -297,7 +297,7 @@ test("gaia-warden: a non-blocking PreToolUse advisory surfaces via sendMessage",
   assert.match(sent[0], /advisory note/);
 });
 
-test("gaia-warden: a matcher-filtered PreToolUse dispatch (no specs matched) is a silent no-op", async () => {
+test("agent-pi-harness-warden: a matcher-filtered PreToolUse dispatch (no specs matched) is a silent no-op", async () => {
   const sent: string[] = [];
   const handlers = createWardenHandlers({
     runPythonImpl: async () =>
@@ -317,7 +317,7 @@ test("gaia-warden: a matcher-filtered PreToolUse dispatch (no specs matched) is 
   assert.deepEqual(sent, []);
 });
 
-test("gaia-warden: BOU-3092 option B prefilter skips the dispatch.py spawn for an ls-class command", async () => {
+test("agent-pi-harness-warden: BOU-3092 option B prefilter skips the dispatch.py spawn for an ls-class command", async () => {
   let dispatchCalls = 0;
   const handlers = createWardenHandlers({
     runPythonImpl: async () =>
@@ -334,7 +334,7 @@ test("gaia-warden: BOU-3092 option B prefilter skips the dispatch.py spawn for a
   assert.equal(dispatchCalls, 0, "dispatch.py must not be spawned for a command no spec could match");
 });
 
-test("gaia-warden: BOU-3092 option B prefilter still dispatches push/tmp/redirect/git-commit commands", async () => {
+test("agent-pi-harness-warden: BOU-3092 option B prefilter still dispatches push/tmp/redirect/git-commit commands", async () => {
   let dispatchCalls = 0;
   const handlers = createWardenHandlers({
     runPythonImpl: async () =>
@@ -354,7 +354,7 @@ test("gaia-warden: BOU-3092 option B prefilter still dispatches push/tmp/redirec
   assert.equal(dispatchCalls, 4);
 });
 
-test("gaia-warden: PreToolUse dispatch-invocation failures release independently of gateFailureCount", async () => {
+test("agent-pi-harness-warden: PreToolUse dispatch-invocation failures release independently of gateFailureCount", async () => {
   const sent: string[] = [];
   const handlers = createWardenHandlers({
     runPythonImpl: async () =>
@@ -381,7 +381,7 @@ test("gaia-warden: PreToolUse dispatch-invocation failures release independently
   assert.match(sent[0], /released after 3 consecutive dispatch failures/);
 });
 
-test("gaia-warden: an interleaved prefilter no-op does not mask a broken dispatch.py's failure streak", async () => {
+test("agent-pi-harness-warden: an interleaved prefilter no-op does not mask a broken dispatch.py's failure streak", async () => {
   // PR 3541 review finding (P1, second round): the prefilter no-op path
   // used to reset the (then-shared) failure counter unconditionally — a
   // genuine no-op (it never probed dispatch.py at all) is not evidence the
@@ -424,7 +424,7 @@ test("gaia-warden: an interleaved prefilter no-op does not mask a broken dispatc
   assert.match(sent[0], /released after 3 consecutive dispatch failures/);
 });
 
-test("gaia-warden: gate.py and dispatch.py failure streaks release independently under cross-source interleaving", async () => {
+test("agent-pi-harness-warden: gate.py and dispatch.py failure streaks release independently under cross-source interleaving", async () => {
   // PR 3541 review finding (P1, third round, fresh evidence): with a SHARED
   // counter, a healthy call on one boundary reset evidence of an ongoing
   // failure on the OTHER — isolated gate.py failures separated by healthy
@@ -486,7 +486,7 @@ test("gaia-warden: gate.py and dispatch.py failure streaks release independently
   assert.match(sent[0], /released after 3 consecutive dispatch failures/);
 });
 
-test("gaia-warden: surfaces gate.py's release warning instead of a silent allow", async () => {
+test("agent-pi-harness-warden: surfaces gate.py's release warning instead of a silent allow", async () => {
   const sent: string[] = [];
   const handlers = createWardenHandlers({
     runPythonImpl: async () =>

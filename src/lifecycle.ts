@@ -10,7 +10,7 @@
 //   session_start     -> SessionStart (stale-owner sweep runs inside dispatch.py)
 //   session_shutdown  -> SessionEnd (teardown-by-owner runs inside dispatch.py;
 //                         this handler AWAITS it before returning)
-// `tool_call` is handled by gaia-warden.ts, not here. PreCompact has no Pi
+// `tool_call` is handled by agent-pi-harness-warden.ts, not here. PreCompact has no Pi
 // event; response-budget-guard.py's --reset already runs on SessionStart
 // per the manifest (unmapped, by design).
 
@@ -176,7 +176,7 @@ async function safePiAsyncCall(label: string, fn: () => Promise<void>): Promise<
     return true;
   } catch (error) {
     if (!isStaleRuntimeError(error)) throw error;
-    console.error(`[gaia-lifecycle] ${label} skipped — extension runtime went stale`);
+    console.error(`[agent-pi-harness-lifecycle] ${label} skipped — extension runtime went stale`);
     return false;
   }
 }
@@ -232,11 +232,11 @@ export function userMessageText(message: unknown): string | undefined {
  * `ctx.switchSession()`, `ctx.reload()`, OR another extension entirely
  * triggering the same runtime replacement. Confirmed live (drive-run
  * finding, BOU-3084/PR 3541): a plain `pi -p --approve "..."` run in this
- * repo hits this from gaia-lifecycle on every invocation, root-caused to
+ * repo hits this from agent-pi-harness-lifecycle on every invocation, root-caused to
  * pi-subagents' periodic background-work snapshot replacing the runtime
- * mid-session — nothing gaia-lifecycle itself calls. Pi's own guidance
+ * mid-session — nothing agent-pi-harness-lifecycle itself calls. Pi's own guidance
  * ("move post-replacement work into withSession") only applies to code that
- * ITSELF calls one of those methods; gaia-lifecycle never does, so there is
+ * ITSELF calls one of those methods; agent-pi-harness-lifecycle never does, so there is
  * no `withSession` callback to hook into, and the replacement is entirely
  * out-of-band from this extension's point of view.
  */
@@ -262,7 +262,7 @@ export function safePiCall(label: string, fn: () => void): boolean {
     return true;
   } catch (error) {
     if (!isStaleRuntimeError(error)) throw error;
-    console.error(`[gaia-lifecycle] ${label} skipped — extension runtime went stale`);
+    console.error(`[agent-pi-harness-lifecycle] ${label} skipped — extension runtime went stale`);
     return false;
   }
 }
@@ -2104,7 +2104,7 @@ export function resetPendingBlockReplayState(now = Date.now()): {
 
 /** Consecutive Stop-dispatch-invocation failures tolerated before releasing
  * (allowing) rather than wedging every completion attempt forever — mirrors
- * gaia-warden.ts's `EXTENSION_FAILURE_RELEASE_THRESHOLD` (PR 3535 review
+ * agent-pi-harness-warden.ts's `EXTENSION_FAILURE_RELEASE_THRESHOLD` (PR 3535 review
  * round 2 P1 finding B). */
 export const STOP_DISPATCH_FAILURE_RELEASE_THRESHOLD = 3;
 
@@ -2182,7 +2182,7 @@ export function createLifecycleHandlers(deps: LifecycleHandlerDeps): LifecycleHa
    * the operator (PR 3535 review round 1 P2 finding 6). */
   function surfaceTeardownWarnings(source: "SessionStart" | "SessionEnd", result: DispatchResult): void {
     if (result.teardown_warnings.length === 0) return;
-    deps.appendEntry("gaia-lifecycle-teardown-warning", {
+    deps.appendEntry("agent-pi-harness-lifecycle-teardown-warning", {
       source,
       warnings: result.teardown_warnings,
     });
@@ -2572,7 +2572,7 @@ export default function lifecycle(
       schedulePendingBlockReplayPoll();
     }
     console.error(
-      `[gaia-lifecycle] user-message delivery rejected${dispatchId ? ` for ${dispatchId}` : ""}: ${
+      `[agent-pi-harness-lifecycle] user-message delivery rejected${dispatchId ? ` for ${dispatchId}` : ""}: ${
         error instanceof Error ? error.message : String(error)
       }`,
     );
@@ -2730,7 +2730,7 @@ export default function lifecycle(
     },
     sendMessage: (content) => {
       safePiCall("sendMessage", () =>
-        pi.sendMessage({ customType: "gaia-lifecycle", content, display: true }),
+        pi.sendMessage({ customType: "agent-pi-harness-lifecycle", content, display: true }),
       );
     },
     appendEntry: (customType, data) => {
@@ -2777,7 +2777,7 @@ export default function lifecycle(
     if (
       pendingSummary &&
       safePiCall("replay final session summary", () =>
-        pi.appendEntry("gaia-final-session-summary", { summary: pendingSummary }),
+        pi.appendEntry("agent-pi-harness-final-session-summary", { summary: pendingSummary }),
       )
     ) {
       rmSync(pendingSummaryPath(projectCwd, adapter), { force: true });
@@ -2810,8 +2810,8 @@ export default function lifecycle(
     // call is on the OTHER side of the `await` above from the SessionStart
     // dispatch to python — the exact window a drive-run reproduced the
     // stale-runtime throw in (see `safePiCall`) — so it needs the same guard.
-    safePiCall("session_start gaia-smoke marker", () =>
-      pi.appendEntry("gaia-smoke", { extension: "gaia-lifecycle" }),
+    safePiCall("session_start agent-pi-harness-smoke marker", () =>
+      pi.appendEntry("agent-pi-harness-smoke", { extension: "agent-pi-harness-lifecycle" }),
     );
   });
 
@@ -2833,7 +2833,7 @@ export default function lifecycle(
       if (deliveredSummary === latestSummary) return;
       persistPendingSummary(projectCwd, latestSummary, adapter);
       if (safePiCall("final session summary", () =>
-        pi.appendEntry("gaia-final-session-summary", { summary: latestSummary }),
+        pi.appendEntry("agent-pi-harness-final-session-summary", { summary: latestSummary }),
       )) {
         rmSync(pendingSummaryPath(projectCwd, adapter), { force: true });
         writeFileSync(deliveredSummaryPath(projectCwd, adapter), `${latestSummary}\n`, { mode: 0o600 });

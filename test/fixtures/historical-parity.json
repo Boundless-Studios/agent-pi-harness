@@ -7,56 +7,42 @@
       "historicalPath": ".pi/extensions/gaia-lifecycle.ts",
       "extractedPath": "src/lifecycle.ts",
       "historicalSha256": "c68a2b5da58f0f9b8a40c1680d7b7496c8307e640cfc764431c8d028c5aad9cf",
-      "extractedSha256": "fe78bfa99e298d6b807f162d6c0f7ec665a8db7b05229f6c72333a354b40670f",
-      "normalizations": [],
       "expectedExports": ["createLifecycleHandlers", "persistPendingBlock", "tabColorForState"]
     },
     {
       "historicalPath": ".pi/extensions/gaia-skills.ts",
       "extractedPath": "src/skills.ts",
       "historicalSha256": "22f91551ca7e723763ce14e44f5790a9bf149bdc74d897a0393bcfe0205f79df",
-      "extractedSha256": "e86602a7b9035e9bc8ee23b7a2a714cf1c5012da58bad6ec89a2e93253045e76",
-      "normalizations": [],
       "expectedExports": ["contributedSkillPaths", "loadSkillCompatManifest", "default"]
     },
     {
       "historicalPath": ".pi/extensions/gaia-warden.ts",
       "extractedPath": "src/warden.ts",
       "historicalSha256": "48c9a561efedbe052435fc1f3fe662a19346b37099b2f59d86a71c7f077667bb",
-      "extractedSha256": "bf06702dca4532a430dffc80b55b99c818e2f5f174815bc1991f834dadfad136",
-      "normalizations": [],
       "expectedExports": ["createWardenHandlers", "couldMatchAnyPreToolUseSpec", "default"]
     },
     {
       "historicalPath": ".pi/extensions/lib/dispatch.ts",
       "extractedPath": "src/lib/dispatch.ts",
       "historicalSha256": "fd765e5165963daec34b58ce8091d57d38478febd38a0bfcfa81bd0df3a58888",
-      "extractedSha256": "eaab4035901b9b292f59150e2088dbda2ece3b2da1f71db87c97f61204e0066d",
-      "normalizations": [],
       "expectedExports": ["runDispatch", "isDispatchResult", "collectAdvisoryText"]
     },
     {
       "historicalPath": ".pi/extensions/lib/model-context.ts",
       "extractedPath": "src/lib/model-context.ts",
       "historicalSha256": "651ccdd0ee5a17364345991c47e565a7ca3239a2940dc3833bb9ba8e2f837b00",
-      "extractedSha256": "31161aeb723ec4e88a82a4b122f0e3af798e468e4d792f2a4f3a26460f4fe87c",
-      "normalizations": [],
       "expectedExports": ["resolveModelContext"]
     },
     {
       "historicalPath": ".pi/extensions/lib/session.ts",
       "extractedPath": "src/lib/session.ts",
       "historicalSha256": "6bcfd4cfde3011fd08f21de3050e3a762e014bf18fe6b3c5fc2078adad421969",
-      "extractedSha256": "f9ae7a57b9dc25f2024ceb32568ec5901003e4b7b3afbb492dcda83ea7f8021b",
-      "normalizations": [],
       "expectedExports": ["resolveSessionId"]
     },
     {
       "historicalPath": "packages/pi-governance/src/run-python.ts",
       "extractedPath": "src/run-python.ts",
       "historicalSha256": "c15aa8ab04625ceb8ba1e206a3b9efcad5177c5cad22938a6d5f5b44427cf813",
-      "extractedSha256": "be3b20c33402e77ee176b39b60c68ed3c225ee324ba795116ef5faddebff7ac2",
-      "normalizations": [],
       "expectedExports": ["runPython"]
     }
   ]

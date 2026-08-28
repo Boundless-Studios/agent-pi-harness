@@ -138,7 +138,7 @@ function isDispatchInvocationFailure(result: DispatchResult): boolean {
 }
 
 /**
- * Builds the gaia-warden `tool_call` handler over an injectable `deps`, with
+ * Builds the agent-pi-harness-warden `tool_call` handler over an injectable `deps`, with
  * its own consecutive-extension-failure counter — decoupled from
  * `pi.on(...)` wiring so it can be exercised directly against a stubbed
  * `runPythonImpl`/`runDispatchImpl` (bead AC: a runnable behavioral test).
@@ -301,7 +301,7 @@ export default function warden(
     runDispatchImpl: runDispatch,
     adapter,
     sendMessage: (content) =>
-      pi.sendMessage({ customType: "gaia-warden", content, display: true }),
+      pi.sendMessage({ customType: "agent-pi-harness-warden", content, display: true }),
   });
 
   pi.on("session_start", (_event: SessionStartEvent, ctx: ExtensionContext) => {
@@ -310,7 +310,7 @@ export default function warden(
     // Pi harness parity PR 3 (plan Step 8): a durable, greppable marker the
     // A launch smoke check can look for this durable marker in the session
     // file to prove this extension actually loaded and ran.
-    pi.appendEntry("gaia-smoke", { extension: "gaia-warden" });
+    pi.appendEntry("agent-pi-harness-smoke", { extension: "agent-pi-harness-warden" });
   });
 
   pi.on("tool_call", async (event, ctx: ExtensionContext) => {

@@ -248,7 +248,7 @@ export function resolveProjectPath(cwd: string, relativePath: string): string {
   return join(cwd, relativePath);
 }
 
-/** Neutral defaults keep the runtime useful for projects that do not need a Gaia-specific adapter. */
+/** Neutral defaults keep the runtime useful for projects that do not need a project-specific adapter. */
 export const DEFAULT_PROJECT_ADAPTER_V1 = createProjectAdapterV1({
   version: PROJECT_ADAPTER_VERSION,
   projectPaths: {

@@ -80,6 +80,6 @@ export default function skills(
     // Pi harness parity PR 3 (plan Step 8): a durable, greppable marker the
     // A launch smoke check can look for this durable marker in the session
     // file to prove this extension actually loaded and ran.
-    pi.appendEntry("gaia-smoke", { extension: "gaia-skills" });
+    pi.appendEntry("agent-pi-harness-smoke", { extension: "agent-pi-harness-skills" });
   });
 }

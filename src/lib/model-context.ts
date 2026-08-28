@@ -86,7 +86,7 @@ function lookupModelsJson(path: string, provider: string, modelId: string): Mode
  * `$PI_CODING_AGENT_DIR/models.json` (the file the launcher renders per
  * proxy port at activate) first, then falls back to the adapter's project
  * model file when the rendered agent-dir copy is
- * unavailable (e.g. a bare `pi` invocation outside the Gaia launcher).
+ * unavailable (e.g. a bare `pi` invocation outside the project launcher).
  */
 function resolveFromEnvAndModelsJson(
   cwd: string,

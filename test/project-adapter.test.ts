@@ -288,7 +288,7 @@ test("warden handlers pass adapter commands, arguments, timeout, and identity", 
   assert.equal(dispatchAdapter, validAdapter);
 });
 
-test("neutral operator status accepts an empty command result during session start", async () => {
+test("the neutral default adapter completes session start with empty command output", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-neutral-status-"));
   const handlers = new Map<string, (...args: any[]) => unknown>();
   const statuses: string[] = [];
@@ -312,7 +312,7 @@ test("neutral operator status accepts an empty command result during session sta
 
   try {
     const lifecycle = (await import("../src/lifecycle.js")).default;
-    lifecycle(pi, validAdapter);
+    lifecycle(pi);
     const sessionStart = handlers.get("session_start");
     assert.ok(sessionStart);
     await sessionStart({}, context);

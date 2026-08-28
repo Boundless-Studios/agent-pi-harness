@@ -4,7 +4,7 @@ import { contributedSkillPaths } from "../src/skills.js";
 import type { SkillCompatManifest } from "../src/skills.js";
 import { GAIA_FIXTURE_ADAPTER } from "./fixtures/gaia-adapter.js";
 
-test("gaia-skills: contributes .claude/skills/<name> for every non-claude-only entry", () => {
+test("agent-pi-harness-skills: contributes .claude/skills/<name> for every non-claude-only entry", () => {
   const manifest: SkillCompatManifest = {
     skills: [
       { name: "codex", status: "loads-clean", markers: [], notes: "" },
@@ -30,7 +30,7 @@ test("gaia-skills: contributes .claude/skills/<name> for every non-claude-only e
     "/worktree/.claude/skills/gaia-test-runner",
   ]);
 });
-test("gaia-skills: an empty manifest contributes no paths", () => {
+test("agent-pi-harness-skills: an empty manifest contributes no paths", () => {
   assert.deepEqual(
     contributedSkillPaths({ skills: [] }, "/worktree", GAIA_FIXTURE_ADAPTER.skillRoots),
     [],
