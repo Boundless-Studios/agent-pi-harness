@@ -28,5 +28,7 @@ jobs:
         run: npm test
       - name: Test packed-package consumer
         run: npm run consumer-smoke
+      - name: Test Git-SHA consumer
+        run: npm run git-consumer-smoke
       - name: Verify publish contents
         run: npm pack --dry-run
