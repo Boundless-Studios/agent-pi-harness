@@ -86,6 +86,113 @@ test("project adapter validation rejects malformed or unsafe config", () => {
   );
 });
 
+test("project adapter validation rejects unknown keys at every object level", () => {
+  assert.throws(
+    () => parseProjectAdapterV1({ ...validAdapter, unexpected: true } as unknown),
+    /unknown key.*unexpected/,
+  );
+  assert.throws(
+    () =>
+      parseProjectAdapterV1({
+        ...validAdapter,
+        projectPaths: { ...validAdapter.projectPaths, unexpected: true },
+      } as unknown),
+    /projectPaths.*unexpected/,
+  );
+  assert.throws(
+    () =>
+      parseProjectAdapterV1({
+        ...validAdapter,
+        policyArgv: { ...validAdapter.policyArgv, unexpected: true },
+      } as unknown),
+    /policyArgv.*unexpected/,
+  );
+  assert.throws(
+    () =>
+      parseProjectAdapterV1({
+        ...validAdapter,
+        policyArgv: {
+          ...validAdapter.policyArgv,
+          gate: { ...validAdapter.policyArgv.gate, unexpected: true },
+        },
+      } as unknown),
+    /policyArgv\.gate.*unexpected/,
+  );
+  assert.throws(
+    () =>
+      parseProjectAdapterV1({
+        ...validAdapter,
+        lifecycleIntentArgv: { ...validAdapter.lifecycleIntentArgv, unexpected: ["true"] },
+      } as unknown),
+    /lifecycleIntentArgv.*unexpected/,
+  );
+  assert.throws(
+    () =>
+      parseProjectAdapterV1({
+        ...validAdapter,
+        timeouts: { ...validAdapter.timeouts, unexpected: 1 },
+      } as unknown),
+    /timeouts.*unexpected/,
+  );
+});
+
+test("project adapter validation requires explicit executable resolution and rejects shell wrappers", () => {
+  assert.throws(
+    () =>
+      parseProjectAdapterV1({
+        ...validAdapter,
+        lifecycleIntentArgv: {
+          ...validAdapter.lifecycleIntentArgv,
+          tabColor: ["./hooks/set-color"],
+        },
+      } as unknown),
+    /relative executable/,
+  );
+  assert.throws(
+    () =>
+      parseProjectAdapterV1({
+        ...validAdapter,
+        lifecycleIntentArgv: {
+          ...validAdapter.lifecycleIntentArgv,
+          tabColor: ["../hooks/set-color"],
+        },
+      } as unknown),
+    /relative executable/,
+  );
+  assert.throws(
+    () =>
+      parseProjectAdapterV1({
+        ...validAdapter,
+        lifecycleIntentArgv: {
+          ...validAdapter.lifecycleIntentArgv,
+          tabColor: ["sh", "-c", "true"],
+        },
+      } as unknown),
+    /shell/,
+  );
+  assert.throws(
+    () =>
+      parseProjectAdapterV1({
+        ...validAdapter,
+        lifecycleIntentArgv: {
+          ...validAdapter.lifecycleIntentArgv,
+          tabColor: ["python3", "-c", "print('unsafe')"],
+        },
+      } as unknown),
+    /shell/,
+  );
+  assert.doesNotThrow(() =>
+    parseProjectAdapterV1({
+      ...validAdapter,
+      lifecycleIntentArgv: {
+        ...validAdapter.lifecycleIntentArgv,
+        tabColor: ["/usr/bin/true"],
+      },
+    }),
+  );
+  assert.doesNotThrow(() => parseProjectAdapterV1(GAIA_FIXTURE_ADAPTER));
+});
+
 test("Gaia parity adapter keeps the extracted project bindings outside the runtime", () => {
   assert.equal(GAIA_FIXTURE_ADAPTER.projectPaths.stateRoot, ".gaia/pi-finalization");
   assert.equal(GAIA_FIXTURE_ADAPTER.policyArgv.gate.script, "scripts/pi-hooks/gate.py");
@@ -160,4 +267,38 @@ test("warden handlers pass adapter commands, arguments, timeout, and identity", 
     },
   ]);
   assert.equal(dispatchAdapter, validAdapter);
+});
+
+test("neutral operator status accepts an empty command result during session start", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "pi-neutral-status-"));
+  const handlers = new Map<string, (...args: any[]) => unknown>();
+  const statuses: string[] = [];
+  const pi = {
+    exec: async () => ({ code: 0, stdout: "", stderr: "" }),
+    on: (event: string, handler: (...args: any[]) => unknown) => {
+      handlers.set(event, handler);
+    },
+    appendEntry: () => undefined,
+    sendMessage: () => undefined,
+    sendUserMessage: () => undefined,
+  } as any;
+  const context = {
+    cwd,
+    sessionManager: { getSessionId: () => "neutral-status-session" },
+    ui: {
+      setStatus: (_key: string, value: string) => statuses.push(value),
+      theme: { fg: (_color: string, value: string) => value },
+    },
+  } as any;
+
+  try {
+    const lifecycle = (await import("../src/lifecycle.js")).default;
+    lifecycle(pi, validAdapter);
+    const sessionStart = handlers.get("session_start");
+    assert.ok(sessionStart);
+    await sessionStart({}, context);
+    assert.deepEqual(statuses, ["worktree: file://" + cwd, "worktree: file://" + cwd]);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
 });

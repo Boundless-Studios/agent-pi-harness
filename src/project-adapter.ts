@@ -59,6 +59,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function assertAllowedKeys(
+  value: Record<string, unknown>,
+  allowedKeys: readonly string[],
+  scope: string,
+): void {
+  const allowed = new Set(allowedKeys);
+  for (const key of Object.keys(value)) {
+    if (!allowed.has(key)) throw new TypeError(`${scope} has unknown key ${JSON.stringify(key)}`);
+  }
+}
+
 function assertNonEmptyString(value: unknown, field: string): asserts value is string {
   if (typeof value !== "string" || value.trim() === "") {
     throw new TypeError(`${field} must be a non-empty string`);
@@ -90,6 +101,32 @@ function assertArgv(value: unknown, field: string, requireOne = false): asserts 
   }
 }
 
+function assertLifecycleIntentArgv(value: unknown, field: string): asserts value is readonly string[] {
+  assertArgv(value, field, true);
+  const [executable, ...argv] = value;
+  if (
+    executable.startsWith("./") ||
+    executable.startsWith("../") ||
+    executable.startsWith(".\\") ||
+    executable.startsWith("..\\")
+  ) {
+    throw new TypeError(`${field}[0] must not be a relative executable`);
+  }
+
+  const executableName = executable.split(/[\\/]/).at(-1)?.toLowerCase();
+  const usesShellCommand =
+    executableName !== undefined &&
+    ["sh", "bash", "zsh", "dash"].includes(executableName) &&
+    argv.includes("-c");
+  const usesInterpreterCommand =
+    executableName !== undefined &&
+    ["python", "python3", "node"].includes(executableName) &&
+    argv.some((argument) => argument === "-c" || argument === "-e");
+  if (usesShellCommand || usesInterpreterCommand) {
+    throw new TypeError(`${field} must not use a shell or interpreter command string`);
+  }
+}
+
 function assertPositiveTimeout(value: unknown, field: string): asserts value is number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
     throw new TypeError(`${field} must be a positive safe integer`);
@@ -97,11 +134,32 @@ function assertPositiveTimeout(value: unknown, field: string): asserts value is 
 }
 
 function assertProjectAdapterShape(value: unknown): asserts value is ProjectAdapterV1Input {
-  if (!isRecord(value) || value.version !== PROJECT_ADAPTER_VERSION) {
+  if (!isRecord(value)) throw new TypeError("project adapter must be an object");
+  assertAllowedKeys(
+    value,
+    [
+      "version",
+      "projectPaths",
+      "policyArgv",
+      "skillRoots",
+      "lifecycleIntentArgv",
+      "timeouts",
+      "sessionIdEnv",
+      "modelProvider",
+      "budgetContextEnv",
+    ],
+    "project adapter",
+  );
+  if (value.version !== PROJECT_ADAPTER_VERSION) {
     throw new TypeError(`project adapter version must be ${PROJECT_ADAPTER_VERSION}`);
   }
   const paths = value.projectPaths;
   if (!isRecord(paths)) throw new TypeError("projectPaths must be an object");
+  assertAllowedKeys(
+    paths,
+    ["stateRoot", "configRoot", "modelsFile", "skillManifestFile"],
+    "projectPaths",
+  );
   assertRelativePath(paths.stateRoot, "projectPaths.stateRoot");
   assertRelativePath(paths.configRoot, "projectPaths.configRoot");
   assertRelativePath(paths.modelsFile, "projectPaths.modelsFile");
@@ -109,9 +167,11 @@ function assertProjectAdapterShape(value: unknown): asserts value is ProjectAdap
 
   const policy = value.policyArgv;
   if (!isRecord(policy)) throw new TypeError("policyArgv must be an object");
+  assertAllowedKeys(policy, ["gate", "dispatch"], "policyArgv");
   for (const name of ["gate", "dispatch"] as const) {
     const command = policy[name];
     if (!isRecord(command)) throw new TypeError(`policyArgv.${name} must be an object`);
+    assertAllowedKeys(command, ["script", "argv"], `policyArgv.${name}`);
     assertRelativePath(command.script, `policyArgv.${name}.script`);
     assertArgv(command.argv, `policyArgv.${name}.argv`);
   }
@@ -123,11 +183,13 @@ function assertProjectAdapterShape(value: unknown): asserts value is ProjectAdap
 
   const intents = value.lifecycleIntentArgv;
   if (!isRecord(intents)) throw new TypeError("lifecycleIntentArgv must be an object");
-  assertArgv(intents.tabColor, "lifecycleIntentArgv.tabColor", true);
-  assertArgv(intents.operatorStatus, "lifecycleIntentArgv.operatorStatus", true);
+  assertAllowedKeys(intents, ["tabColor", "operatorStatus"], "lifecycleIntentArgv");
+  assertLifecycleIntentArgv(intents.tabColor, "lifecycleIntentArgv.tabColor");
+  assertLifecycleIntentArgv(intents.operatorStatus, "lifecycleIntentArgv.operatorStatus");
 
   const timeouts = value.timeouts;
   if (!isRecord(timeouts)) throw new TypeError("timeouts must be an object");
+  assertAllowedKeys(timeouts, ["policyMs", "tabColorMs", "operatorStatusMs"], "timeouts");
   assertPositiveTimeout(timeouts.policyMs, "timeouts.policyMs");
   assertPositiveTimeout(timeouts.tabColorMs, "timeouts.tabColorMs");
   assertPositiveTimeout(timeouts.operatorStatusMs, "timeouts.operatorStatusMs");

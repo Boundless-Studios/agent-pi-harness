@@ -151,7 +151,7 @@ async function refreshOperatorStatus(
   });
   let prUrl = "";
   let prState = "";
-  if (pr.code === 0) {
+  if (pr.code === 0 && pr.stdout.trim()) {
     const data = JSON.parse(pr.stdout) as {
       url?: string;
       reviewDecision?: string;
