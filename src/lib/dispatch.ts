@@ -7,6 +7,11 @@
 // other's dispatch.py subprocess contract or its advisory-text formatting.
 
 import { runPython } from "../run-python.js";
+import {
+  DEFAULT_PROJECT_ADAPTER_V1,
+  resolveProjectArgv,
+} from "../project-adapter.js";
+import type { ProjectAdapterV1 } from "../project-adapter.js";
 
 export interface DispatchResult {
   readonly results: readonly unknown[];
@@ -49,6 +54,7 @@ export type RunDispatch = (
   event: string,
   cwd: string,
   payload: Record<string, unknown>,
+  adapter?: ProjectAdapterV1,
 ) => Promise<DispatchResult>;
 
 /** Total characters of surfaced advisory text before truncation (bound per PR
@@ -79,22 +85,24 @@ export function collectAdvisoryText(result: DispatchResult): string {
 }
 
 /** When `payload.context_window` is a positive finite number, forwards it as
- * `GAIA_OUTPUT_BUDGET_CONTEXT_TOKENS` — the one env var
- * `.claude/hooks/response-budget-guard.py`'s `_configure_gaia_environment()`
+ * the adapter's budget-context env var — the one env var
+ * the response-budget policy's environment setup
  * itself reads and maps onto the underlying harness's explicit window
  * override (PR 3535 review round 2 P1 finding D). The guard consumes NO
  * `context_window` payload KEY directly — only this env var, or its `model`
  * payload key for coarse family-substring matching — so this is the only
- * channel that can deliver gaia-llama's exact 65,536-token window instead of
+ * channel that can deliver the configured model's exact context window instead of
  * the family match's 128,000 or the hook's own 200,000 default. */
 export function budgetGuardEnvOverride(
   payload: Record<string, unknown>,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): NodeJS.ProcessEnv | undefined {
   const window = payload.context_window;
   if (typeof window !== "number" || !Number.isFinite(window) || window <= 0) {
     return undefined;
   }
-  return { ...process.env, GAIA_OUTPUT_BUDGET_CONTEXT_TOKENS: String(Math.trunc(window)) };
+  const variable = adapter.budgetContextEnv;
+  return variable ? { ...process.env, [variable]: String(Math.trunc(window)) } : process.env;
 }
 
 /** The real dispatch.py caller — the default `runDispatch` used by both
@@ -103,28 +111,31 @@ export async function runDispatch(
   event: string,
   cwd: string,
   payload: Record<string, unknown>,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): Promise<DispatchResult> {
+  const command = adapter.policyArgv.dispatch;
   const result = await runPython(
-    "scripts/pi-hooks/dispatch.py",
-    ["--event", event, "--project-dir", cwd],
+    command.script,
+    resolveProjectArgv(command.argv, { cwd, event }),
     payload,
     cwd,
-    budgetGuardEnvOverride(payload),
+    budgetGuardEnvOverride(payload, adapter),
+    adapter.timeouts.policyMs,
   );
 
   if (result.code !== 0) {
-    return emptyDispatchResult(`dispatch.py exited ${result.code}: ${result.stderr.trim()}`);
+    return emptyDispatchResult(`${command.script} exited ${result.code}: ${result.stderr.trim()}`);
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(result.stdout);
   } catch {
-    return emptyDispatchResult(`dispatch.py produced unparseable stdout: ${result.stdout.trim()}`);
+    return emptyDispatchResult(`${command.script} produced unparseable stdout: ${result.stdout.trim()}`);
   }
 
   if (!isDispatchResult(parsed)) {
-    return emptyDispatchResult("dispatch.py produced an unexpected payload shape");
+    return emptyDispatchResult(`${command.script} produced an unexpected payload shape`);
   }
   return parsed;
 }

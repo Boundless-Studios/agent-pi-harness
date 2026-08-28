@@ -1,7 +1,7 @@
 // Pi harness parity PR 2 (docs/plans/evaluate-harness-shift.md Step 4).
 //
-// Lifecycle dispatcher shim: forwards Pi lifecycle events to
-// scripts/pi-hooks/dispatch.py per the plan's event-mapping table.
+// Lifecycle dispatcher shim: forwards Pi lifecycle events to the configured
+// dispatch policy command per the event-mapping table.
 //   tool_result       -> PostToolUse (advisory, surfaced via sendMessage)
 //   agent_settled     -> Stop (re-engage via sendUserMessage, capped;
 //                         a dispatch-invocation FAILURE is itself treated
@@ -50,6 +50,12 @@ import type { DispatchResult, RunDispatch } from "./lib/dispatch.js";
 import { resolveModelContext } from "./lib/model-context.js";
 import type { ModelContext } from "./lib/model-context.js";
 import { resolveSessionId } from "./lib/session.js";
+import {
+  DEFAULT_PROJECT_ADAPTER_V1,
+  resolveProjectArgv,
+  resolveProjectPath,
+} from "./project-adapter.js";
+import type { ProjectAdapterV1 } from "./project-adapter.js";
 
 export type { DispatchResult, RunDispatch };
 export { ADVISORY_MAX_LENGTH };
@@ -119,17 +125,29 @@ export function agentRunNeedsAttention(messages: readonly unknown[]): boolean {
   return false;
 }
 
-async function setTabColor(pi: ExtensionAPI, cwd: string, color: PiTabColor): Promise<void> {
-  await pi.exec("python3", ["scripts/codex-hooks/run_iterm_tab_color.py", color], {
+async function setTabColor(
+  pi: ExtensionAPI,
+  cwd: string,
+  color: PiTabColor,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
+): Promise<void> {
+  const command = adapter.lifecycleIntentArgv.tabColor;
+  await pi.exec(command[0], [...command.slice(1), color], {
     cwd,
-    timeout: 5_000,
+    timeout: adapter.timeouts.tabColorMs,
   });
 }
 
-async function refreshOperatorStatus(pi: ExtensionAPI, ctx: ExtensionContext, cwd: string): Promise<void> {
-  const pr = await pi.exec("gh", ["pr", "view", "--json", "url,reviewDecision,statusCheckRollup"], {
+async function refreshOperatorStatus(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  cwd: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
+): Promise<void> {
+  const command = adapter.lifecycleIntentArgv.operatorStatus;
+  const pr = await pi.exec(command[0], [...command.slice(1)], {
     cwd,
-    timeout: 10_000,
+    timeout: adapter.timeouts.operatorStatusMs,
   });
   let prUrl = "";
   let prState = "";
@@ -147,7 +165,7 @@ async function refreshOperatorStatus(pi: ExtensionAPI, ctx: ExtensionContext, cw
     prState = data.reviewDecision ? `${ci}, ${data.reviewDecision.toLowerCase()}` : ci;
   }
   ctx.ui.setStatus(
-    "gaia-links",
+    "harness-links",
     ctx.ui.theme.fg("accent", buildOperatorStatus(cwd, prUrl || undefined, prState || undefined)),
   );
 }
@@ -272,9 +290,16 @@ export interface PendingBlockRecoveryHooks {
   readonly afterBudgetTransfer?: () => void;
 }
 
-function pendingBlockPath(cwd: string, sessionId: string): string {
+function pendingBlockPath(
+  cwd: string,
+  sessionId: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
+): string {
   const sessionIdentity = createHash("sha256").update(sessionId).digest("hex");
-  return join(cwd, ".gaia", "pi-finalization", `pending-block-${sessionIdentity}.json`);
+  return join(
+    resolveProjectPath(cwd, adapter.projectPaths.stateRoot),
+    `pending-block-${sessionIdentity}.json`,
+  );
 }
 
 export interface ActiveTurnState {
@@ -288,16 +313,27 @@ export interface ActiveTurnState {
   readonly owner_process_start?: string;
 }
 
-function activeTurnPath(cwd: string, sessionId: string): string {
+function activeTurnPath(
+  cwd: string,
+  sessionId: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
+): string {
   const sessionIdentity = createHash("sha256").update(sessionId).digest("hex");
-  return join(cwd, ".gaia", "pi-finalization", `active-turn-${sessionIdentity}.json`);
+  return join(
+    resolveProjectPath(cwd, adapter.projectPaths.stateRoot),
+    `active-turn-${sessionIdentity}.json`,
+  );
 }
 
-export function readActiveTurn(cwd: string, sessionId: string): ActiveTurnState | undefined {
+export function readActiveTurn(
+  cwd: string,
+  sessionId: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
+): ActiveTurnState | undefined {
   if (!sessionId) return undefined;
   try {
     return parseActiveTurnRecord(
-      JSON.parse(readFileSync(activeTurnPath(cwd, sessionId), "utf8")),
+      JSON.parse(readFileSync(activeTurnPath(cwd, sessionId, adapter), "utf8")),
       sessionId,
     );
   } catch {
@@ -354,9 +390,10 @@ export function persistActiveTurn(
   startedAt = Date.now(),
   ownerPid = process.pid,
   ownerProcessStart = processIncarnation(ownerPid),
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): void {
   if (!sessionId || !runtimeId || !turnId) return;
-  const path = activeTurnPath(cwd, sessionId);
+  const path = activeTurnPath(cwd, sessionId, adapter);
   const temporary = `${path}.${process.pid}.tmp`;
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   writeFileSync(
@@ -385,9 +422,10 @@ export function clearActiveTurn(
   sessionId: string,
   runtimeId: string,
   turnId: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): boolean {
-  const path = activeTurnPath(cwd, sessionId);
-  const current = readActiveTurn(cwd, sessionId);
+  const path = activeTurnPath(cwd, sessionId, adapter);
+  const current = readActiveTurn(cwd, sessionId, adapter);
   if (
     !current ||
     current.runtime_id !== runtimeId ||
@@ -478,15 +516,26 @@ function isPendingBlockForCurrentBranch(
     : pending.branch_name === undefined;
 }
 
-function lifecycleBudgetPath(cwd: string, sessionId: string): string {
+function lifecycleBudgetPath(
+  cwd: string,
+  sessionId: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
+): string {
   const sessionIdentity = createHash("sha256").update(sessionId).digest("hex");
-  return join(cwd, ".gaia", "pi-finalization", `lifecycle-budget-${sessionIdentity}.json`);
+  return join(
+    resolveProjectPath(cwd, adapter.projectPaths.stateRoot),
+    `lifecycle-budget-${sessionIdentity}.json`,
+  );
 }
 
-export function readLifecycleBudget(cwd: string, sessionId: string): LifecycleBudget | undefined {
+export function readLifecycleBudget(
+  cwd: string,
+  sessionId: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
+): LifecycleBudget | undefined {
   if (!sessionId) return undefined;
   try {
-    const record = JSON.parse(readFileSync(lifecycleBudgetPath(cwd, sessionId), "utf8")) as Record<
+    const record = JSON.parse(readFileSync(lifecycleBudgetPath(cwd, sessionId, adapter), "utf8")) as Record<
       string,
       unknown
     >;
@@ -693,13 +742,24 @@ interface StopOrderState {
   readonly latest_healthy_order?: number;
 }
 
-function stopOrderPath(cwd: string, sessionId: string): string {
+function stopOrderPath(
+  cwd: string,
+  sessionId: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
+): string {
   const sessionIdentity = createHash("sha256").update(sessionId).digest("hex");
-  return join(cwd, ".gaia", "pi-finalization", `stop-order-${sessionIdentity}.json`);
+  return join(
+    resolveProjectPath(cwd, adapter.projectPaths.stateRoot),
+    `stop-order-${sessionIdentity}.json`,
+  );
 }
 
-function stopOrderFallbackPath(cwd: string, sessionId: string): string {
-  return `${stopOrderPath(cwd, sessionId)}.fallback`;
+function stopOrderFallbackPath(
+  cwd: string,
+  sessionId: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
+): string {
+  return `${stopOrderPath(cwd, sessionId, adapter)}.fallback`;
 }
 
 function readStopOrderStateAtPath(path: string, sessionId: string): StopOrderState | undefined {
@@ -739,10 +799,14 @@ function readStopOrderStateAtPath(path: string, sessionId: string): StopOrderSta
   }
 }
 
-function readStopOrderState(cwd: string, sessionId: string): StopOrderState | undefined {
+function readStopOrderState(
+  cwd: string,
+  sessionId: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
+): StopOrderState | undefined {
   if (!sessionId) return undefined;
-  const primary = readStopOrderStateAtPath(stopOrderPath(cwd, sessionId), sessionId);
-  const fallback = readStopOrderStateAtPath(stopOrderFallbackPath(cwd, sessionId), sessionId);
+  const primary = readStopOrderStateAtPath(stopOrderPath(cwd, sessionId, adapter), sessionId);
+  const fallback = readStopOrderStateAtPath(stopOrderFallbackPath(cwd, sessionId, adapter), sessionId);
   if (!primary) return fallback;
   if (!fallback) return primary;
   const healthyOrders = [primary.latest_healthy_order, fallback.latest_healthy_order].filter(
@@ -765,11 +829,15 @@ function writeStopOrderState(path: string, state: StopOrderState): void {
   renameSync(temporary, path);
 }
 
-function allocateStopOrder(cwd: string, sessionId: string): number | undefined {
+function allocateStopOrder(
+  cwd: string,
+  sessionId: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
+): number | undefined {
   if (!sessionId) return Date.now();
-  const path = stopOrderPath(cwd, sessionId);
+  const path = stopOrderPath(cwd, sessionId, adapter);
   const allocated = withLifecycleBudgetLock(path, () => {
-    const current = readStopOrderState(cwd, sessionId) ?? {
+    const current = readStopOrderState(cwd, sessionId, adapter) ?? {
       schema_version: 1 as const,
       session_id: sessionId,
       next_order: 0,
@@ -791,7 +859,7 @@ function allocateStopOrder(cwd: string, sessionId: string): number | undefined {
   // resumed by a later Stop.
   const fallback = Date.now();
   try {
-    const current = readStopOrderState(cwd, sessionId);
+    const current = readStopOrderState(cwd, sessionId, adapter);
     const fallbackState = {
       ...(current ?? {
         schema_version: 1 as const,
@@ -804,22 +872,27 @@ function allocateStopOrder(cwd: string, sessionId: string): number | undefined {
     // incorporated the high-water mark. This caller does not own the primary
     // lock, so writing the primary file here could overwrite a newer state
     // published by the lock holder between our read and this write.
-    writeStopOrderState(stopOrderFallbackPath(cwd, sessionId), fallbackState);
+    writeStopOrderState(stopOrderFallbackPath(cwd, sessionId, adapter), fallbackState);
     return fallback;
   } catch {
     return undefined;
   }
 }
 
-function recordHealthyStopOrder(cwd: string, sessionId: string, stopOrder: number): boolean {
+function recordHealthyStopOrder(
+  cwd: string,
+  sessionId: string,
+  stopOrder: number,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
+): boolean {
   // A session-less Stop uses an in-memory timestamp and has no durable state
   // to update. Preserve that legacy path; named sessions must record the
   // healthy high-water mark before their completion can be reported.
   if (!sessionId) return true;
   if (!Number.isSafeInteger(stopOrder) || stopOrder < 0) return false;
-  const path = stopOrderPath(cwd, sessionId);
+  const path = stopOrderPath(cwd, sessionId, adapter);
   const recorded = withLifecycleBudgetLock(path, () => {
-    const current = readStopOrderState(cwd, sessionId) ?? {
+    const current = readStopOrderState(cwd, sessionId, adapter) ?? {
       schema_version: 1 as const,
       session_id: sessionId,
       next_order: stopOrder,
@@ -838,7 +911,7 @@ function recordHealthyStopOrder(cwd: string, sessionId: string, stopOrder: numbe
   // it; completion is still considered durable only if this fallback write
   // succeeds.
   try {
-    const current = readStopOrderState(cwd, sessionId);
+    const current = readStopOrderState(cwd, sessionId, adapter);
     const fallbackState = {
       ...(current ?? {
         schema_version: 1 as const,
@@ -848,15 +921,19 @@ function recordHealthyStopOrder(cwd: string, sessionId: string, stopOrder: numbe
       next_order: Math.max(current?.next_order ?? 0, stopOrder),
       latest_healthy_order: Math.max(current?.latest_healthy_order ?? 0, stopOrder),
     };
-    writeStopOrderState(stopOrderFallbackPath(cwd, sessionId), fallbackState);
+    writeStopOrderState(stopOrderFallbackPath(cwd, sessionId, adapter), fallbackState);
     return true;
   } catch {
     return false;
   }
 }
 
-function latestHealthyStopOrder(cwd: string, sessionId: string): number | undefined {
-  return readStopOrderState(cwd, sessionId)?.latest_healthy_order;
+function latestHealthyStopOrder(
+  cwd: string,
+  sessionId: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
+): number | undefined {
+  return readStopOrderState(cwd, sessionId, adapter)?.latest_healthy_order;
 }
 
 function transferStopOrderState(
@@ -864,13 +941,14 @@ function transferStopOrderState(
   sourceSessionId: string,
   targetSessionId: string,
   inheritedStopOrder?: number,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): boolean {
   if (!sourceSessionId || sourceSessionId === targetSessionId) return true;
-  const source = readStopOrderState(cwd, sourceSessionId);
+  const source = readStopOrderState(cwd, sourceSessionId, adapter);
   if (!source && inheritedStopOrder === undefined) return true;
-  const targetPath = stopOrderPath(cwd, targetSessionId);
+  const targetPath = stopOrderPath(cwd, targetSessionId, adapter);
   const transferred = withLifecycleBudgetLock(targetPath, () => {
-    const current = readStopOrderState(cwd, targetSessionId);
+    const current = readStopOrderState(cwd, targetSessionId, adapter);
     const nextOrder = Math.max(
       current?.next_order ?? 0,
       source?.next_order ?? 0,
@@ -895,19 +973,24 @@ function cleanupTransferredStopOrderState(
   cwd: string,
   sourceSessionId: string | undefined,
   targetSessionId: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): void {
   if (!sourceSessionId || sourceSessionId === targetSessionId) return;
-  if (!readStopOrderState(cwd, targetSessionId)) return;
-  rmSync(stopOrderPath(cwd, sourceSessionId), { force: true });
-  rmSync(stopOrderFallbackPath(cwd, sourceSessionId), { force: true });
+  if (!readStopOrderState(cwd, targetSessionId, adapter)) return;
+  rmSync(stopOrderPath(cwd, sourceSessionId, adapter), { force: true });
+  rmSync(stopOrderFallbackPath(cwd, sourceSessionId, adapter), { force: true });
 }
 
-function cleanupCompletedLifecycleState(cwd: string, sessionId: string): void {
-  if (!sessionId || existsSync(pendingBlockPath(cwd, sessionId))) return;
-  rmSync(stopOrderPath(cwd, sessionId), { force: true });
-  rmSync(stopOrderFallbackPath(cwd, sessionId), { force: true });
-  rmSync(lifecycleBudgetPath(cwd, sessionId), { force: true });
-  rmSync(pendingBlockDeliveryQueuePath(cwd, sessionId), { force: true });
+function cleanupCompletedLifecycleState(
+  cwd: string,
+  sessionId: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
+): void {
+  if (!sessionId || existsSync(pendingBlockPath(cwd, sessionId, adapter))) return;
+  rmSync(stopOrderPath(cwd, sessionId, adapter), { force: true });
+  rmSync(stopOrderFallbackPath(cwd, sessionId, adapter), { force: true });
+  rmSync(lifecycleBudgetPath(cwd, sessionId, adapter), { force: true });
+  rmSync(pendingBlockDeliveryQueuePath(cwd, sessionId, adapter), { force: true });
 }
 
 function writeLifecycleBudget(
@@ -945,9 +1028,10 @@ export function persistLifecycleBudget(
   sessionId: string,
   reengageCount: number,
   stopDispatchFailureCount: number,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): void {
   if (!sessionId) return;
-  const path = lifecycleBudgetPath(cwd, sessionId);
+  const path = lifecycleBudgetPath(cwd, sessionId, adapter);
   withLifecycleBudgetLock(path, () => {
     writeLifecycleBudget(
       path,
@@ -965,12 +1049,13 @@ function updateLifecycleBudget(
   cwd: string,
   sessionId: string,
   mutation: LifecycleBudgetMutation,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): LifecycleBudgetUpdate | undefined {
   if (!sessionId) return undefined;
-  const path = lifecycleBudgetPath(cwd, sessionId);
+  const path = lifecycleBudgetPath(cwd, sessionId, adapter);
   const branchName = currentBranchName(cwd);
   return withLifecycleBudgetLock(path, () => {
-    const current = readLifecycleBudget(cwd, sessionId) ?? {
+    const current = readLifecycleBudget(cwd, sessionId, adapter) ?? {
       schema_version: 1 as const,
       session_id: sessionId,
       ...(branchName !== undefined ? { branch_name: branchName } : {}),
@@ -1028,14 +1113,15 @@ function transferLifecycleBudget(
   cwd: string,
   sourceSessionId: string,
   targetSessionId: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): boolean {
   if (!sourceSessionId || sourceSessionId === targetSessionId) return true;
   const branchName = currentBranchName(cwd);
-  const source = readLifecycleBudget(cwd, sourceSessionId);
+  const source = readLifecycleBudget(cwd, sourceSessionId, adapter);
   if (!source) return true;
-  const targetPath = lifecycleBudgetPath(cwd, targetSessionId);
+  const targetPath = lifecycleBudgetPath(cwd, targetSessionId, adapter);
   const transferred = withLifecycleBudgetLock(targetPath, () => {
-    const current = readLifecycleBudget(cwd, targetSessionId) ?? {
+    const current = readLifecycleBudget(cwd, targetSessionId, adapter) ?? {
       schema_version: 1 as const,
       session_id: targetSessionId,
       ...(branchName !== undefined ? { branch_name: branchName } : {}),
@@ -1069,18 +1155,22 @@ function cleanupTransferredLifecycleBudget(
   cwd: string,
   sourceSessionId: string | undefined,
   targetSessionId: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): void {
   if (!sourceSessionId || sourceSessionId === targetSessionId) return;
   // The target record must durably name the source before the source can be
   // removed. That marker also makes a retry after a crash exactly-once: an
   // additive transfer will not count the source twice.
-  const target = readLifecycleBudget(cwd, targetSessionId);
+  const target = readLifecycleBudget(cwd, targetSessionId, adapter);
   if (!target?.transferred_from_session_ids?.includes(sourceSessionId)) return;
-  rmSync(lifecycleBudgetPath(cwd, sourceSessionId), { force: true });
+  rmSync(lifecycleBudgetPath(cwd, sourceSessionId, adapter), { force: true });
 }
 
-function legacyPendingBlockPath(cwd: string): string {
-  return join(cwd, ".gaia", "pi-finalization", "unclaimed-block.json");
+function legacyPendingBlockPath(
+  cwd: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
+): string {
+  return join(resolveProjectPath(cwd, adapter.projectPaths.stateRoot), "unclaimed-block.json");
 }
 
 function stableDispatchId(sessionId: string, message: string): string {
@@ -1125,8 +1215,13 @@ function writePendingBlockAtPath(path: string, block: PendingCompletionBlock): v
   renameSync(temporary, path);
 }
 
-function writePendingBlock(cwd: string, pathSessionId: string, block: PendingCompletionBlock): void {
-  writePendingBlockAtPath(pendingBlockPath(cwd, pathSessionId), block);
+function writePendingBlock(
+  cwd: string,
+  pathSessionId: string,
+  block: PendingCompletionBlock,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
+): void {
+  writePendingBlockAtPath(pendingBlockPath(cwd, pathSessionId, adapter), block);
 }
 
 export function persistPendingBlock(
@@ -1138,6 +1233,7 @@ export function persistPendingBlock(
   ownerProcessStart = processIncarnation(ownerPid),
   stopOrder?: number,
   branchName?: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): void {
   const block = createPendingCompletionBlock(
     sessionId,
@@ -1152,6 +1248,7 @@ export function persistPendingBlock(
     cwd,
     sessionId,
     scopedBranchName ? { ...block, branch_name: scopedBranchName } : block,
+    adapter,
   );
 }
 
@@ -1196,8 +1293,9 @@ export function readPendingBlock(
   cwd: string,
   sessionId: string,
   orphanedSessionId?: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): PendingCompletionBlock | undefined {
-  const path = pendingBlockPath(cwd, sessionId);
+  const path = pendingBlockPath(cwd, sessionId, adapter);
   try {
     const raw = JSON.parse(readFileSync(path, "utf8"));
     const pending = parsePendingBlock(raw, sessionId);
@@ -1214,14 +1312,14 @@ export function readPendingBlock(
     }
     return isPendingBlockForCurrentBranch(cwd, pending) ? pending : undefined;
   } catch {
-    const claimCandidates = [legacyPendingBlockPath(cwd)];
+    const claimCandidates = [legacyPendingBlockPath(cwd, adapter)];
     if (orphanedSessionId && orphanedSessionId !== sessionId) {
-      claimCandidates.push(pendingBlockPath(cwd, orphanedSessionId));
+      claimCandidates.push(pendingBlockPath(cwd, orphanedSessionId, adapter));
     }
     for (const candidate of claimCandidates) {
       try {
         renameSync(candidate, path);
-        return readPendingBlock(cwd, sessionId);
+        return readPendingBlock(cwd, sessionId, undefined, adapter);
       } catch {
         // Another session may have claimed this candidate first.
       }
@@ -1234,8 +1332,9 @@ function readSessionPendingBlock(
   cwd: string,
   sessionId: string,
   branchName: string | undefined | null = null,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): PendingCompletionBlock | undefined {
-  const path = pendingBlockPath(cwd, sessionId);
+  const path = pendingBlockPath(cwd, sessionId, adapter);
   const pending = readSessionPendingBlockAtPath(path, sessionId);
   const migrated = pending ? migrateLegacyPendingBlockAtPath(cwd, path, pending) : undefined;
   return migrated && isPendingBlockForCurrentBranch(cwd, migrated, branchName)
@@ -1366,11 +1465,12 @@ export function readOrphanedPendingBlock(
   cwd: string,
   sessionId: string,
   hooks: PendingBlockRecoveryHooks = {},
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): PendingCompletionBlock | undefined {
-  const existing = readPendingBlock(cwd, sessionId);
+  const existing = readPendingBlock(cwd, sessionId, undefined, adapter);
   if (existing) return existing;
 
-  const path = pendingBlockPath(cwd, sessionId);
+  const path = pendingBlockPath(cwd, sessionId, adapter);
   const directory = dirname(path);
   let candidates: string[];
   try {
@@ -1439,7 +1539,7 @@ export function readOrphanedPendingBlock(
       (pending.session_id !== sessionId ? pending.session_id : undefined);
     const stagedBudgetSourceSessionId = pending.budget_transfer_source_session_id;
     const markedBudget = markedBudgetSourceSessionId
-      ? readLifecycleBudget(cwd, markedBudgetSourceSessionId)
+      ? readLifecycleBudget(cwd, markedBudgetSourceSessionId, adapter)
       : undefined;
     const budgetAlreadyTransferred =
       stagedBudgetSourceSessionId !== undefined &&
@@ -1456,7 +1556,7 @@ export function readOrphanedPendingBlock(
           pending.budget_transfer_source_session_id !== sessionId
         ? pending.budget_transfer_source_session_id
         : undefined;
-    const competingBeforeClaim = readPendingBlock(cwd, sessionId);
+    const competingBeforeClaim = readPendingBlock(cwd, sessionId, undefined, adapter);
     if (competingBeforeClaim) {
       writePendingBlockAtPath(staging, pending);
       try {
@@ -1491,7 +1591,7 @@ export function readOrphanedPendingBlock(
       : claimed;
     writePendingBlockAtPath(staging, stagedClaim);
     hooks.beforeBudgetCleanup?.();
-    const competingAfterClaim = readPendingBlock(cwd, sessionId);
+    const competingAfterClaim = readPendingBlock(cwd, sessionId, undefined, adapter);
     if (competingAfterClaim) {
       writePendingBlockAtPath(staging, pending);
       try {
@@ -1505,7 +1605,7 @@ export function readOrphanedPendingBlock(
     if (
       budgetSourceSessionId &&
       budgetSourceSessionId !== sessionId &&
-      !transferLifecycleBudget(cwd, budgetSourceSessionId, sessionId)
+      !transferLifecycleBudget(cwd, budgetSourceSessionId, sessionId, adapter)
     ) {
       try {
         renameSync(staging, candidate);
@@ -1516,7 +1616,7 @@ export function readOrphanedPendingBlock(
     }
     if (
       stopOrderSourceSessionId &&
-      !transferStopOrderState(cwd, stopOrderSourceSessionId, sessionId, pending.stop_order)
+      !transferStopOrderState(cwd, stopOrderSourceSessionId, sessionId, pending.stop_order, adapter)
     ) {
       const requeued = {
         ...stagedClaim,
@@ -1533,13 +1633,13 @@ export function readOrphanedPendingBlock(
       }
       continue;
     }
-    cleanupTransferredLifecycleBudget(cwd, budgetSourceSessionId, sessionId);
-    cleanupTransferredStopOrderState(cwd, stopOrderSourceSessionId, sessionId);
+    cleanupTransferredLifecycleBudget(cwd, budgetSourceSessionId, sessionId, adapter);
+    cleanupTransferredStopOrderState(cwd, stopOrderSourceSessionId, sessionId, adapter);
     if (budgetAlreadyTransferred && stagedBudgetSourceSessionId) {
-      cleanupTransferredLifecycleBudget(cwd, stagedBudgetSourceSessionId, sessionId);
+      cleanupTransferredLifecycleBudget(cwd, stagedBudgetSourceSessionId, sessionId, adapter);
     }
     hooks.afterBudgetTransfer?.();
-    const competingAfterTransfer = readPendingBlock(cwd, sessionId);
+    const competingAfterTransfer = readPendingBlock(cwd, sessionId, undefined, adapter);
     if (competingAfterTransfer) {
       // The destination won a race after the budget transfer. Requeue the
       // staged claim under its original dead-owner identity so this launcher
@@ -1576,7 +1676,7 @@ export function readOrphanedPendingBlock(
       }
     }
     renameSync(staging, path);
-    return readPendingBlock(cwd, sessionId);
+    return readPendingBlock(cwd, sessionId, undefined, adapter);
   }
   return undefined;
 }
@@ -1586,12 +1686,13 @@ export function markPendingBlockDelivered(
   sessionId: string,
   runtimeId: string,
   block: PendingCompletionBlock,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): PendingCompletionBlock | undefined {
-  const current = readSessionPendingBlock(cwd, sessionId);
+  const current = readSessionPendingBlock(cwd, sessionId, null, adapter);
   if (!current || current.dispatch_id !== block.dispatch_id) return undefined;
   if (current.delivery_runtime_id === runtimeId) return undefined;
   const delivered = { ...current, delivery_runtime_id: runtimeId };
-  writePendingBlock(cwd, sessionId, delivered);
+  writePendingBlock(cwd, sessionId, delivered, adapter);
   return delivered;
 }
 
@@ -1601,19 +1702,27 @@ interface PendingBlockDeliveryQueue {
   readonly deliveries: readonly PendingCompletionBlock[];
 }
 
-function pendingBlockDeliveryQueuePath(cwd: string, sessionId: string): string {
+function pendingBlockDeliveryQueuePath(
+  cwd: string,
+  sessionId: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
+): string {
   const sessionIdentity = createHash("sha256").update(sessionId).digest("hex");
-  return join(cwd, ".gaia", "pi-finalization", `pending-block-deliveries-${sessionIdentity}.json`);
+  return join(
+    resolveProjectPath(cwd, adapter.projectPaths.stateRoot),
+    `pending-block-deliveries-${sessionIdentity}.json`,
+  );
 }
 
 export function readPendingBlockDeliveries(
   cwd: string,
   sessionId: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): PendingCompletionBlock[] {
   if (!sessionId) return [];
   try {
     const record = JSON.parse(
-      readFileSync(pendingBlockDeliveryQueuePath(cwd, sessionId), "utf8"),
+      readFileSync(pendingBlockDeliveryQueuePath(cwd, sessionId, adapter), "utf8"),
     ) as Record<string, unknown>;
     if (
       record.schema_version !== 1 ||
@@ -1639,8 +1748,9 @@ function writePendingBlockDeliveries(
   cwd: string,
   sessionId: string,
   deliveries: readonly PendingCompletionBlock[],
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): void {
-  const path = pendingBlockDeliveryQueuePath(cwd, sessionId);
+  const path = pendingBlockDeliveryQueuePath(cwd, sessionId, adapter);
   if (deliveries.length === 0) {
     rmSync(path, { force: true });
     return;
@@ -1660,14 +1770,15 @@ export function persistPendingBlockDelivery(
   cwd: string,
   sessionId: string,
   block: PendingCompletionBlock,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): void {
   if (!sessionId || block.session_id !== sessionId) return;
-  const path = pendingBlockDeliveryQueuePath(cwd, sessionId);
+  const path = pendingBlockDeliveryQueuePath(cwd, sessionId, adapter);
   withLifecycleBudgetLock(path, () => {
-    const deliveries = readPendingBlockDeliveries(cwd, sessionId).filter(
+    const deliveries = readPendingBlockDeliveries(cwd, sessionId, adapter).filter(
       (delivery) => delivery.dispatch_id !== block.dispatch_id,
     );
-    writePendingBlockDeliveries(cwd, sessionId, [...deliveries, block]);
+    writePendingBlockDeliveries(cwd, sessionId, [...deliveries, block], adapter);
   });
 }
 
@@ -1675,14 +1786,15 @@ function removePendingBlockDelivery(
   cwd: string,
   sessionId: string,
   dispatchId: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): void {
   if (!sessionId || !dispatchId) return;
-  const path = pendingBlockDeliveryQueuePath(cwd, sessionId);
+  const path = pendingBlockDeliveryQueuePath(cwd, sessionId, adapter);
   withLifecycleBudgetLock(path, () => {
-    const deliveries = readPendingBlockDeliveries(cwd, sessionId).filter(
+    const deliveries = readPendingBlockDeliveries(cwd, sessionId, adapter).filter(
       (delivery) => delivery.dispatch_id !== dispatchId,
     );
-    writePendingBlockDeliveries(cwd, sessionId, deliveries);
+    writePendingBlockDeliveries(cwd, sessionId, deliveries, adapter);
   });
 }
 
@@ -1712,9 +1824,10 @@ function refreshPendingBlockOwner(
   cwd: string,
   sessionId: string,
   block: PendingCompletionBlock,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): PendingCompletionBlock | undefined {
-  const path = pendingBlockPath(cwd, sessionId);
-  const current = readSessionPendingBlock(cwd, sessionId);
+  const path = pendingBlockPath(cwd, sessionId, adapter);
+  const current = readSessionPendingBlock(cwd, sessionId, null, adapter);
   if (!current || current.dispatch_id !== block.dispatch_id) return undefined;
 
   const claimedPath = refreshingPendingBlockPath(path);
@@ -1767,19 +1880,20 @@ export function replayPendingCompletionBlock(
   _runtimeId: string,
   sendUserMessage: (content: string) => boolean,
   orphanedSessionId?: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): PendingCompletionBlock | undefined {
   const pending =
-    readSessionPendingBlock(cwd, sessionId) ??
+    readSessionPendingBlock(cwd, sessionId, null, adapter) ??
     (orphanedSessionId
-      ? readPendingBlock(cwd, sessionId, orphanedSessionId)
+      ? readPendingBlock(cwd, sessionId, orphanedSessionId, adapter)
       : undefined);
   if (!pending) return undefined;
-  const refreshed = refreshPendingBlockOwner(cwd, sessionId, pending);
+  const refreshed = refreshPendingBlockOwner(cwd, sessionId, pending, adapter);
   if (!refreshed) return undefined;
   const replay = refreshed.delivery_runtime_id && refreshed.delivery_runtime_id !== _runtimeId
     ? { ...refreshed, delivery_runtime_id: _runtimeId }
     : refreshed;
-  if (replay !== refreshed) writePendingBlock(cwd, sessionId, replay);
+  if (replay !== refreshed) writePendingBlock(cwd, sessionId, replay, adapter);
   if (!sendUserMessage(replay.message)) return undefined;
   // The synchronous Pi wrapper only submits the prompt. Durable delivery
   // bookkeeping is performed by before_agent_start/message_start after Pi has
@@ -1822,9 +1936,10 @@ export function acknowledgePendingBlock(
   runtimeId: string,
   dispatchId: string,
   renamePendingBlock: (source: string, destination: string) => void = renameSync,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): void {
-  const path = pendingBlockPath(cwd, sessionId);
-  const current = readSessionPendingBlock(cwd, sessionId);
+  const path = pendingBlockPath(cwd, sessionId, adapter);
+  const current = readSessionPendingBlock(cwd, sessionId, null, adapter);
   if (!current || current.dispatch_id !== dispatchId) return;
   if (current.delivery_runtime_id && current.delivery_runtime_id !== runtimeId) return;
 
@@ -1870,31 +1985,45 @@ export function acknowledgePendingBlockForPrompt(
   runtimeId: string,
   block: PendingCompletionBlock,
   prompt: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): boolean {
   if (prompt !== block.message) return false;
-  acknowledgePendingBlock(cwd, sessionId, runtimeId, block.dispatch_id);
-  return readSessionPendingBlock(cwd, sessionId) === undefined;
+  acknowledgePendingBlock(cwd, sessionId, runtimeId, block.dispatch_id, renameSync, adapter);
+  return readSessionPendingBlock(cwd, sessionId, null, adapter) === undefined;
 }
 
-function pendingSummaryPath(cwd: string): string {
-  return join(cwd, ".gaia", "pi-finalization", "unclaimed-summary.txt");
+function pendingSummaryPath(
+  cwd: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
+): string {
+  return join(resolveProjectPath(cwd, adapter.projectPaths.stateRoot), "unclaimed-summary.txt");
 }
 
-function deliveredSummaryPath(cwd: string): string {
-  return join(cwd, ".gaia", "pi-finalization", "last-delivered-summary.txt");
+function deliveredSummaryPath(
+  cwd: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
+): string {
+  return join(resolveProjectPath(cwd, adapter.projectPaths.stateRoot), "last-delivered-summary.txt");
 }
 
-function persistPendingSummary(cwd: string, summary: string): void {
-  const path = pendingSummaryPath(cwd);
+function persistPendingSummary(
+  cwd: string,
+  summary: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
+): void {
+  const path = pendingSummaryPath(cwd, adapter);
   const temporary = `${path}.${process.pid}.tmp`;
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   writeFileSync(temporary, `${summary}\n`, { mode: 0o600 });
   renameSync(temporary, path);
 }
 
-function readPendingSummary(cwd: string): string | undefined {
+function readPendingSummary(
+  cwd: string,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
+): string | undefined {
   try {
-    return readFileSync(pendingSummaryPath(cwd), "utf8").trim() || undefined;
+    return readFileSync(pendingSummaryPath(cwd, adapter), "utf8").trim() || undefined;
   } catch {
     return undefined;
   }
@@ -1919,7 +2048,7 @@ export function toolResponseFromEvent(event: ToolResultEvent): Record<string, un
  * factored out so it can be asserted on directly in behavioral tests
  * without wiring a real `pi.on(...)` extension context. `modelContext`
  * supplies the `model`/`context_window` keys
- * `.claude/hooks/response-budget-guard.py` calibrates its thresholds from
+ * the response-budget policy calibrates its thresholds from
  * (PR 3535 review round 2 P1 finding D); both are omitted when unresolved
  * rather than sent as `undefined`. */
 export function buildToolResultPayload(
@@ -1981,6 +2110,7 @@ export const STOP_DISPATCH_FAILURE_RELEASE_THRESHOLD = 3;
 
 export interface LifecycleHandlerDeps {
   readonly runDispatch: RunDispatch;
+  readonly adapter?: ProjectAdapterV1;
   /** Writes the blocked color before Pi is asked to launch a re-engagement. */
   readonly beforeReengagement?: () => Promise<void>;
   readonly sendUserMessage: (
@@ -2010,13 +2140,14 @@ export interface LifecycleHandlers {
  * stubbed `runDispatch` (bead AC: a runnable behavioral test).
  */
 export function createLifecycleHandlers(deps: LifecycleHandlerDeps): LifecycleHandlers {
+  const adapter = deps.adapter ?? DEFAULT_PROJECT_ADAPTER_V1;
   let reengageCount = 0;
   let stopDispatchFailureCount = 0;
   let budgetCwd = "";
   let budgetSessionId = "";
 
   function persistBudget(mutation: LifecycleBudgetMutation = {}): LifecycleBudgetUpdate | undefined {
-    const updated = updateLifecycleBudget(budgetCwd, budgetSessionId, mutation);
+    const updated = updateLifecycleBudget(budgetCwd, budgetSessionId, mutation, adapter);
     if (updated) {
       reengageCount = updated.budget.reengage_count;
       stopDispatchFailureCount = updated.budget.stop_dispatch_failure_count;
@@ -2063,10 +2194,10 @@ export function createLifecycleHandlers(deps: LifecycleHandlerDeps): LifecycleHa
   ): Promise<DispatchResult> {
     budgetCwd = cwd;
     budgetSessionId = typeof payload.session_id === "string" ? payload.session_id : "";
-    const persisted = readLifecycleBudget(budgetCwd, budgetSessionId);
+    const persisted = readLifecycleBudget(budgetCwd, budgetSessionId, adapter);
     reengageCount = persisted?.reengage_count ?? 0;
     stopDispatchFailureCount = persisted?.stop_dispatch_failure_count ?? 0;
-    const result = await deps.runDispatch("SessionStart", cwd, payload);
+    const result = await deps.runDispatch("SessionStart", cwd, payload, adapter);
     surfaceTeardownWarnings("SessionStart", result);
     return result;
   }
@@ -2075,19 +2206,20 @@ export function createLifecycleHandlers(deps: LifecycleHandlerDeps): LifecycleHa
     cwd: string,
     payload: Record<string, unknown>,
   ): Promise<DispatchResult> {
-    const result = await deps.runDispatch("SessionEnd", cwd, payload);
+    const result = await deps.runDispatch("SessionEnd", cwd, payload, adapter);
     surfaceTeardownWarnings("SessionEnd", result);
     if (payload.reason === "quit") {
       cleanupCompletedLifecycleState(
         cwd,
         typeof payload.session_id === "string" ? payload.session_id : "",
+        adapter,
       );
     }
     return result;
   }
 
   async function onToolResult(cwd: string, payload: Record<string, unknown>): Promise<void> {
-    const result = await deps.runDispatch("PostToolUse", cwd, payload);
+    const result = await deps.runDispatch("PostToolUse", cwd, payload, adapter);
     if (result.block) {
       await deps.sendMessage(result.block_reason);
       return;
@@ -2109,7 +2241,7 @@ export function createLifecycleHandlers(deps: LifecycleHandlerDeps): LifecycleHa
       });
       if (!reset) stopDispatchFailureCount = 0;
     }
-    const result = await deps.runDispatch("UserPromptSubmit", cwd, payload);
+    const result = await deps.runDispatch("UserPromptSubmit", cwd, payload, adapter);
     if (result.block) {
       await deps.sendMessage(result.block_reason);
     }
@@ -2139,13 +2271,17 @@ export function createLifecycleHandlers(deps: LifecycleHandlerDeps): LifecycleHa
     if (!failureUpdate) stopDispatchFailureCount += 1;
     const originalError = result.teardown_warnings.join("; ");
     if (stopDispatchFailureCount >= STOP_DISPATCH_FAILURE_RELEASE_THRESHOLD) {
-      const pending = sessionId ? readSessionPendingBlock(cwd, sessionId) : undefined;
+      const pending = sessionId
+        ? readSessionPendingBlock(cwd, sessionId, null, adapter)
+        : undefined;
       if (pending?.message.startsWith("Stop dispatch failed —")) {
         acknowledgePendingBlock(
           cwd,
           sessionId,
           pending.delivery_runtime_id ?? "",
           pending.dispatch_id,
+          renameSync,
+          adapter,
         );
       }
       await deps.sendMessage(
@@ -2165,7 +2301,7 @@ export function createLifecycleHandlers(deps: LifecycleHandlerDeps): LifecycleHa
       const message =
         `Stop dispatch failed — treating as incomplete work (fail-closed). ` +
           `Original error: ${originalError}`;
-      const latestHealthyOrder = latestHealthyStopOrder(cwd, sessionId);
+      const latestHealthyOrder = latestHealthyStopOrder(cwd, sessionId, adapter);
       if (
         latestHealthyOrder !== undefined &&
         typeof stopOrder === "number" &&
@@ -2175,7 +2311,9 @@ export function createLifecycleHandlers(deps: LifecycleHandlerDeps): LifecycleHa
       ) {
         return "completed";
       }
-      const latestPending = sessionId ? readSessionPendingBlock(cwd, sessionId) : undefined;
+      const latestPending = sessionId
+        ? readSessionPendingBlock(cwd, sessionId, null, adapter)
+        : undefined;
       if (
         latestPending?.stop_order !== undefined &&
         typeof stopOrder === "number" &&
@@ -2203,7 +2341,7 @@ export function createLifecycleHandlers(deps: LifecycleHandlerDeps): LifecycleHa
       Number.isSafeInteger(payloadStopOrder) &&
       payloadStopOrder >= 0
         ? payloadStopOrder
-        : allocateStopOrder(cwd, sessionId);
+        : allocateStopOrder(cwd, sessionId, adapter);
     if (allocatedStopOrder === undefined) {
       return handleStopDispatchFailure(
         {
@@ -2225,16 +2363,18 @@ export function createLifecycleHandlers(deps: LifecycleHandlerDeps): LifecycleHa
       stop_order: stopOrder,
       ...(branchName !== undefined ? { branch_name: branchName } : {}),
     };
-    const result = await deps.runDispatch("Stop", cwd, orderedPayload);
+    const result = await deps.runDispatch("Stop", cwd, orderedPayload, adapter);
 
     if (isStopDispatchFailure(result)) {
-      const pending = sessionId ? readSessionPendingBlock(cwd, sessionId) : undefined;
+      const pending = sessionId
+        ? readSessionPendingBlock(cwd, sessionId, null, adapter)
+        : undefined;
       if (pending?.stop_order !== undefined && pending.stop_order > stopOrder) return "completed";
-      const healthyOrder = latestHealthyStopOrder(cwd, sessionId);
+      const healthyOrder = latestHealthyStopOrder(cwd, sessionId, adapter);
       if (healthyOrder !== undefined && stopOrder <= healthyOrder) return "completed";
       return handleStopDispatchFailure(result, orderedPayload, cwd);
     }
-    const failureOrder = readLifecycleBudget(cwd, sessionId)?.latest_stop_dispatch_failure_order;
+    const failureOrder = readLifecycleBudget(cwd, sessionId, adapter)?.latest_stop_dispatch_failure_order;
     const healthyUpdate = persistBudget(
       failureOrder !== undefined && failureOrder > stopOrder
         ? {}
@@ -2248,9 +2388,11 @@ export function createLifecycleHandlers(deps: LifecycleHandlerDeps): LifecycleHa
       // A newer healthy Stop may have completed while this older dispatch
       // was still running. Its ordering identity retires this result before
       // it can recreate a completion block for work that already passed.
-      const healthyOrder = latestHealthyStopOrder(cwd, sessionId);
+      const healthyOrder = latestHealthyStopOrder(cwd, sessionId, adapter);
       if (healthyOrder !== undefined && stopOrder <= healthyOrder) return "completed";
-      const pending = sessionId ? readSessionPendingBlock(cwd, sessionId) : undefined;
+      const pending = sessionId
+        ? readSessionPendingBlock(cwd, sessionId, null, adapter)
+        : undefined;
       if (pending?.stop_order !== undefined && pending.stop_order > stopOrder) return "completed";
       if (reengageCount < REENGAGE_LIMIT) {
         const reengageUpdate = persistBudget({
@@ -2263,9 +2405,11 @@ export function createLifecycleHandlers(deps: LifecycleHandlerDeps): LifecycleHa
         // The preparation hook can yield to another Stop handler. Recheck
         // durable ordering after that yield so an older block cannot overwrite
         // a newer completion block that was persisted while it was paused.
-        const latestHealthyOrder = latestHealthyStopOrder(cwd, sessionId);
+        const latestHealthyOrder = latestHealthyStopOrder(cwd, sessionId, adapter);
         if (latestHealthyOrder !== undefined && stopOrder <= latestHealthyOrder) return "completed";
-        const latestPending = sessionId ? readSessionPendingBlock(cwd, sessionId) : undefined;
+        const latestPending = sessionId
+          ? readSessionPendingBlock(cwd, sessionId, null, adapter)
+          : undefined;
         if (latestPending?.stop_order !== undefined && latestPending.stop_order > stopOrder) {
           return "completed";
         }
@@ -2278,7 +2422,7 @@ export function createLifecycleHandlers(deps: LifecycleHandlerDeps): LifecycleHa
       return "blocked";
     }
 
-    if (!recordHealthyStopOrder(cwd, sessionId, stopOrder)) {
+    if (!recordHealthyStopOrder(cwd, sessionId, stopOrder, adapter)) {
       return handleStopDispatchFailure(
         {
           results: [],
@@ -2293,13 +2437,17 @@ export function createLifecycleHandlers(deps: LifecycleHandlerDeps): LifecycleHa
         cwd,
       );
     }
-    const superseded = sessionId ? readSessionPendingBlock(cwd, sessionId) : undefined;
+    const superseded = sessionId
+      ? readSessionPendingBlock(cwd, sessionId, null, adapter)
+      : undefined;
     if (superseded?.stop_order !== undefined && superseded.stop_order < stopOrder) {
       acknowledgePendingBlock(
         cwd,
         sessionId,
         superseded.delivery_runtime_id ?? "",
         superseded.dispatch_id,
+        renameSync,
+        adapter,
       );
     }
 
@@ -2325,7 +2473,10 @@ export function createLifecycleHandlers(deps: LifecycleHandlerDeps): LifecycleHa
   };
 }
 
-export default function gaiaLifecycle(pi: ExtensionAPI): void {
+export default function lifecycle(
+  pi: ExtensionAPI,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
+): void {
   let projectCwd = process.cwd();
   let currentSessionId = "unknown";
   let currentRuntimeId = randomUUID();
@@ -2370,7 +2521,7 @@ export default function gaiaLifecycle(pi: ExtensionAPI): void {
       scopedBlock,
     ];
     awaitingBlockDelivery = scopedBlock;
-    persistPendingBlockDelivery(projectCwd, currentSessionId, scopedBlock);
+    persistPendingBlockDelivery(projectCwd, currentSessionId, scopedBlock, adapter);
   }
 
   function forgetPendingBlockDelivery(
@@ -2386,7 +2537,7 @@ export default function gaiaLifecycle(pi: ExtensionAPI): void {
       (delivery) => delivery.dispatch_id !== dispatchId,
     );
     awaitingBlockDelivery = awaitingBlockDeliveries.at(-1);
-    if (persist) removePendingBlockDelivery(projectCwd, currentSessionId, dispatchId);
+    if (persist) removePendingBlockDelivery(projectCwd, currentSessionId, dispatchId, adapter);
   }
 
   function schedulePendingBlockReplayPoll(): void {
@@ -2450,7 +2601,7 @@ export default function gaiaLifecycle(pi: ExtensionAPI): void {
   }
 
   function replayPendingBlockOnce(): void {
-    // GAIA_SESSION_ID is launch-stable across Pi runtime replacement. During
+    // The adapter's session identity is launch-stable across Pi runtime replacement. During
     // the bounded replacement window, read only this launch's path: an older
     // dead launcher's block must not win a race against a late block persisted
     // by the runtime being replaced.
@@ -2458,6 +2609,7 @@ export default function gaiaLifecycle(pi: ExtensionAPI): void {
       projectCwd,
       currentSessionId,
       replayBranchName,
+      adapter,
     );
     if (!pending) {
       const replacementWindowExpired =
@@ -2470,7 +2622,7 @@ export default function gaiaLifecycle(pi: ExtensionAPI): void {
       if (orphanRecoveryDue) {
         pendingBlockLastOrphanRecoveryAt = Date.now();
         refreshReplayBranchName();
-        pending = readOrphanedPendingBlock(projectCwd, currentSessionId);
+        pending = readOrphanedPendingBlock(projectCwd, currentSessionId, {}, adapter);
         if (pending) resetPendingBlockReplayWindow();
       }
     }
@@ -2516,6 +2668,8 @@ export default function gaiaLifecycle(pi: ExtensionAPI): void {
         if (!accepted) staleReplayRuntime = true;
         return accepted;
       },
+      undefined,
+      adapter,
     );
     if (staleReplayRuntime) {
       stopPendingBlockReplayPoll();
@@ -2535,9 +2689,10 @@ export default function gaiaLifecycle(pi: ExtensionAPI): void {
 
   const handlers = createLifecycleHandlers({
     runDispatch,
+    adapter,
     beforeReengagement: async () => {
       await safePiAsyncCall("pre-reengagement tab color", () =>
-        setTabColor(pi, projectCwd, tabColorForState("needs_input")),
+        setTabColor(pi, projectCwd, tabColorForState("needs_input"), adapter),
       );
     },
     sendUserMessage: (content, completionBlock) => {
@@ -2556,6 +2711,7 @@ export default function gaiaLifecycle(pi: ExtensionAPI): void {
           completionBlock.owner_process_start,
           completionBlock.stop_order,
           completionBlock.branch_name,
+          adapter,
         );
       }
       if (
@@ -2588,14 +2744,14 @@ export default function gaiaLifecycle(pi: ExtensionAPI): void {
     pendingBlockDeliveryRetryAt = 0;
     projectCwd = ctx.cwd;
     refreshReplayBranchName();
-    currentSessionId = resolveSessionId(ctx);
+    currentSessionId = resolveSessionId(ctx, adapter);
     currentRuntimeId = randomUUID();
-    awaitingBlockDeliveries = readPendingBlockDeliveries(projectCwd, currentSessionId);
+    awaitingBlockDeliveries = readPendingBlockDeliveries(projectCwd, currentSessionId, adapter);
     awaitingBlockDelivery = awaitingBlockDeliveries.at(-1);
     pendingBlockDeliveryRetryAt = awaitingBlockDelivery
       ? Date.now() + PENDING_BLOCK_DELIVERY_RETRY_DELAY_MS
       : 0;
-    const inheritedActiveTurn = readActiveTurn(projectCwd, currentSessionId);
+    const inheritedActiveTurn = readActiveTurn(projectCwd, currentSessionId, adapter);
     if (inheritedActiveTurn) {
       // Pi may replace this extension runtime while the model is still
       // streaming. Adopt the durable turn marker before probing pending
@@ -2609,23 +2765,26 @@ export default function gaiaLifecycle(pi: ExtensionAPI): void {
         currentRuntimeId,
         activeTurnId,
         inheritedActiveTurn.started_at,
+        process.pid,
+        processIncarnation(process.pid),
+        adapter,
       );
     } else {
       activeTurnId = undefined;
       agentTurnActive = false;
     }
-    const pendingSummary = readPendingSummary(projectCwd);
+    const pendingSummary = readPendingSummary(projectCwd, adapter);
     if (
       pendingSummary &&
       safePiCall("replay final session summary", () =>
         pi.appendEntry("gaia-final-session-summary", { summary: pendingSummary }),
       )
     ) {
-      rmSync(pendingSummaryPath(projectCwd), { force: true });
-      writeFileSync(deliveredSummaryPath(projectCwd), `${pendingSummary}\n`, { mode: 0o600 });
+      rmSync(pendingSummaryPath(projectCwd, adapter), { force: true });
+      writeFileSync(deliveredSummaryPath(projectCwd, adapter), `${pendingSummary}\n`, { mode: 0o600 });
     }
-    ctx.ui.setStatus("gaia-links", ctx.ui.theme.fg("accent", buildOperatorStatus(projectCwd)));
-    await refreshOperatorStatus(pi, ctx, projectCwd);
+    ctx.ui.setStatus("harness-links", ctx.ui.theme.fg("accent", buildOperatorStatus(projectCwd)));
+    await refreshOperatorStatus(pi, ctx, projectCwd, adapter);
     await handlers.onSessionStart(projectCwd, {
       session_id: currentSessionId,
       cwd: projectCwd,
@@ -2634,18 +2793,20 @@ export default function gaiaLifecycle(pi: ExtensionAPI): void {
       projectCwd,
       currentSessionId,
       replayBranchName,
+      adapter,
     );
     await safePiAsyncCall("session tab color", () =>
       setTabColor(
         pi,
         projectCwd,
         tabColorForPendingReplay(Boolean(pendingBlock)),
+        adapter,
       ),
     );
     replayPendingBlockOnce();
     // Pi harness parity PR 3 (plan Step 8): a durable, greppable marker the
-    // no-login launch smoke (scripts/pi-launch-smoke.sh) checks for in the
-    // session file to prove this extension actually loaded and ran. This
+    // A launch smoke check can look for this durable marker in the session
+    // file to prove this extension actually loaded and ran. This
     // call is on the OTHER side of the `await` above from the SessionStart
     // dispatch to python — the exact window a drive-run reproduced the
     // stale-runtime throw in (see `safePiCall`) — so it needs the same guard.
@@ -2658,7 +2819,7 @@ export default function gaiaLifecycle(pi: ExtensionAPI): void {
     stopPendingBlockReplayPoll();
     awaitingBlockDelivery = undefined;
     awaitingBlockDeliveries = [];
-    const sessionId = resolveSessionId(ctx);
+    const sessionId = resolveSessionId(ctx, adapter);
     await handlers.onSessionShutdown(projectCwd, {
       session_id: sessionId,
       cwd: projectCwd,
@@ -2667,15 +2828,15 @@ export default function gaiaLifecycle(pi: ExtensionAPI): void {
     if (event.reason === "quit") {
       let deliveredSummary: string | undefined;
       try {
-        deliveredSummary = readFileSync(deliveredSummaryPath(projectCwd), "utf8").trim() || undefined;
+        deliveredSummary = readFileSync(deliveredSummaryPath(projectCwd, adapter), "utf8").trim() || undefined;
       } catch {}
       if (deliveredSummary === latestSummary) return;
-      persistPendingSummary(projectCwd, latestSummary);
+      persistPendingSummary(projectCwd, latestSummary, adapter);
       if (safePiCall("final session summary", () =>
         pi.appendEntry("gaia-final-session-summary", { summary: latestSummary }),
       )) {
-        rmSync(pendingSummaryPath(projectCwd), { force: true });
-        writeFileSync(deliveredSummaryPath(projectCwd), `${latestSummary}\n`, { mode: 0o600 });
+        rmSync(pendingSummaryPath(projectCwd, adapter), { force: true });
+        writeFileSync(deliveredSummaryPath(projectCwd, adapter), `${latestSummary}\n`, { mode: 0o600 });
       }
       if (process.stderr.isTTY) ctx.ui.notify(`Session summary\n\n${latestSummary}`, "info");
     }
@@ -2683,10 +2844,10 @@ export default function gaiaLifecycle(pi: ExtensionAPI): void {
 
   pi.on("agent_end", async (event: AgentEndEvent) => {
     if (activeTurnId) {
-      clearActiveTurn(projectCwd, currentSessionId, currentRuntimeId, activeTurnId);
+      clearActiveTurn(projectCwd, currentSessionId, currentRuntimeId, activeTurnId, adapter);
     }
     activeTurnId = undefined;
-    agentTurnActive = readActiveTurn(projectCwd, currentSessionId) !== undefined;
+    agentTurnActive = readActiveTurn(projectCwd, currentSessionId, adapter) !== undefined;
     latestSummary = finalAssistantSummary(event.messages);
     latestAgentRunNeedsAttention = agentRunNeedsAttention(event.messages);
     if (awaitingBlockDelivery) schedulePendingBlockReplayPoll();
@@ -2694,12 +2855,26 @@ export default function gaiaLifecycle(pi: ExtensionAPI): void {
 
   pi.on("agent_start", async (_event: AgentStartEvent) => {
     await safePiAsyncCall("agent start tab color", () =>
-      setTabColor(pi, projectCwd, tabColorForAgentStart(handlers.stopDispatchFailureCount() > 0)),
+      setTabColor(
+        pi,
+        projectCwd,
+        tabColorForAgentStart(handlers.stopDispatchFailureCount() > 0),
+        adapter,
+      ),
     );
     refreshReplayBranchName();
     activeTurnId = randomUUID();
     agentTurnActive = true;
-    persistActiveTurn(projectCwd, currentSessionId, currentRuntimeId, activeTurnId);
+    persistActiveTurn(
+      projectCwd,
+      currentSessionId,
+      currentRuntimeId,
+      activeTurnId,
+      Date.now(),
+      process.pid,
+      processIncarnation(process.pid),
+      adapter,
+    );
   });
 
   function acknowledgeAwaitingBlock(prompt: string): void {
@@ -2708,11 +2883,18 @@ export default function gaiaLifecycle(pi: ExtensionAPI): void {
     if (!pending) return;
     awaitingBlockDeliveries = consumed.remaining;
     awaitingBlockDelivery = awaitingBlockDeliveries.at(-1);
-    removePendingBlockDelivery(projectCwd, currentSessionId, pending.dispatch_id);
-    const current = readSessionPendingBlock(projectCwd, currentSessionId);
-    acknowledgePendingBlock(projectCwd, currentSessionId, currentRuntimeId, pending.dispatch_id);
+    removePendingBlockDelivery(projectCwd, currentSessionId, pending.dispatch_id, adapter);
+    const current = readSessionPendingBlock(projectCwd, currentSessionId, null, adapter);
+    acknowledgePendingBlock(
+      projectCwd,
+      currentSessionId,
+      currentRuntimeId,
+      pending.dispatch_id,
+      renameSync,
+      adapter,
+    );
     if (current?.dispatch_id === pending.dispatch_id &&
-      readSessionPendingBlock(projectCwd, currentSessionId) === undefined) {
+      readSessionPendingBlock(projectCwd, currentSessionId, null, adapter) === undefined) {
       awaitingBlockDelivery = awaitingBlockDeliveries.at(-1);
       pendingBlockDeliveryRetryAt = 0;
       stopPendingBlockReplayPoll();
@@ -2737,12 +2919,15 @@ export default function gaiaLifecycle(pi: ExtensionAPI): void {
       buildToolResultPayload(
         event,
         projectCwd,
-        resolveSessionId(ctx),
-        resolveModelContext(projectCwd, ctx),
+        resolveSessionId(ctx, adapter),
+        resolveModelContext(projectCwd, ctx, adapter),
       ),
     );
     if (shouldRefreshOperatorStatus(event)) {
-      await safePiAsyncCall("operator status refresh", () => refreshOperatorStatus(pi, ctx, projectCwd));
+      await safePiAsyncCall(
+        "operator status refresh",
+        () => refreshOperatorStatus(pi, ctx, projectCwd, adapter),
+      );
     }
   });
 
@@ -2773,6 +2958,7 @@ export default function gaiaLifecycle(pi: ExtensionAPI): void {
         pi,
         projectCwd,
         tabColorAfterAgentSettled(outcome),
+        adapter,
       ),
     );
   });

@@ -19,12 +19,13 @@ export function runPython(
   stdinJson: unknown,
   cwd: string,
   env?: RunPythonEnvironment,
+  timeoutMs?: number,
 ): Promise<RunPythonResult> {
   return new Promise((resolve) => {
     const child = execFile(
       "python3",
       [scriptRelPath, ...argv],
-      { cwd, ...(env ? { env } : {}) },
+      { cwd, ...(env ? { env } : {}), ...(timeoutMs ? { timeout: timeoutMs } : {}) },
       (error: ExecFileException | null, stdout: string, stderr: string) => {
         let code = 0;
         if (error) {

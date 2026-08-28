@@ -20,24 +20,24 @@ import {
   buildToolResultPayload,
   claimOrphanedPendingBlock,
   consumePendingBlockDelivery,
-  createLifecycleHandlers,
+  createLifecycleHandlers as createLifecycleHandlersBase,
   createPendingCompletionBlock,
-  clearActiveTurn,
+  clearActiveTurn as clearActiveTurnBase,
   finalAssistantSummary,
-  markPendingBlockDelivered,
+  markPendingBlockDelivered as markPendingBlockDeliveredBase,
   PENDING_BLOCK_REPLAY_MAX_ATTEMPTS,
   PENDING_BLOCK_ORPHAN_RECOVERY_INTERVAL_MS,
   processIncarnation,
-  persistLifecycleBudget,
-  persistActiveTurn,
-  persistPendingBlock,
-  readLifecycleBudget,
-  readActiveTurn,
-  readPendingBlock,
-  readOrphanedPendingBlock,
-  acknowledgePendingBlock,
-  acknowledgePendingBlockForPrompt,
-  replayPendingCompletionBlock,
+  persistLifecycleBudget as persistLifecycleBudgetBase,
+  persistActiveTurn as persistActiveTurnBase,
+  persistPendingBlock as persistPendingBlockBase,
+  readLifecycleBudget as readLifecycleBudgetBase,
+  readActiveTurn as readActiveTurnBase,
+  readPendingBlock as readPendingBlockBase,
+  readOrphanedPendingBlock as readOrphanedPendingBlockBase,
+  acknowledgePendingBlock as acknowledgePendingBlockBase,
+  acknowledgePendingBlockForPrompt as acknowledgePendingBlockForPromptBase,
+  replayPendingCompletionBlock as replayPendingCompletionBlockBase,
   resetPendingBlockReplayState,
   shouldAttemptPendingBlockReplay,
   shouldRetryPendingBlockDelivery,
@@ -57,6 +57,7 @@ import {
 } from "../src/lifecycle.js";
 import type { AgentSettledOutcome, DispatchResult } from "../src/lifecycle.js";
 import type { ToolResultEvent } from "@earendil-works/pi-coding-agent";
+import { GAIA_FIXTURE_ADAPTER } from "./fixtures/gaia-adapter.js";
 
 function stubDispatchResult(overrides: Partial<DispatchResult>): DispatchResult {
   return {
@@ -70,6 +71,31 @@ function stubDispatchResult(overrides: Partial<DispatchResult>): DispatchResult 
 }
 
 function noopAppendEntry(): void {}
+
+function withGaiaAdapter<T extends (...args: any[]) => any>(fn: T, adapterIndex: number): T {
+  const call = fn as (...args: any[]) => ReturnType<T>;
+  return ((...args: Parameters<T>) => {
+    const callArgs = [...args] as any[];
+    while (callArgs.length < adapterIndex) callArgs.push(undefined);
+    callArgs[adapterIndex] = GAIA_FIXTURE_ADAPTER;
+    return call(...callArgs);
+  }) as T;
+}
+
+const createLifecycleHandlers = (deps: Parameters<typeof createLifecycleHandlersBase>[0]) =>
+  createLifecycleHandlersBase({ ...deps, adapter: GAIA_FIXTURE_ADAPTER });
+const clearActiveTurn = withGaiaAdapter(clearActiveTurnBase, 4);
+const markPendingBlockDelivered = withGaiaAdapter(markPendingBlockDeliveredBase, 4);
+const persistLifecycleBudget = withGaiaAdapter(persistLifecycleBudgetBase, 4);
+const persistActiveTurn = withGaiaAdapter(persistActiveTurnBase, 7);
+const persistPendingBlock = withGaiaAdapter(persistPendingBlockBase, 8);
+const readLifecycleBudget = withGaiaAdapter(readLifecycleBudgetBase, 2);
+const readActiveTurn = withGaiaAdapter(readActiveTurnBase, 2);
+const readPendingBlock = withGaiaAdapter(readPendingBlockBase, 3);
+const readOrphanedPendingBlock = withGaiaAdapter(readOrphanedPendingBlockBase, 3);
+const acknowledgePendingBlock = withGaiaAdapter(acknowledgePendingBlockBase, 5);
+const acknowledgePendingBlockForPrompt = withGaiaAdapter(acknowledgePendingBlockForPromptBase, 5);
+const replayPendingCompletionBlock = withGaiaAdapter(replayPendingCompletionBlockBase, 5);
 
 test("gaia-lifecycle: tab states reuse the established iTerm color convention", () => {
   assert.deepEqual(
@@ -214,10 +240,12 @@ test("gaia-lifecycle: delivery identities survive a runtime replacement", async 
       cwd: string,
       sessionId: string,
       block: ReturnType<typeof createPendingCompletionBlock>,
+      adapter?: typeof GAIA_FIXTURE_ADAPTER,
     ) => void;
     readPendingBlockDeliveries?: (
       cwd: string,
       sessionId: string,
+      adapter?: typeof GAIA_FIXTURE_ADAPTER,
     ) => ReturnType<typeof createPendingCompletionBlock>[];
   };
   assert.equal(typeof lifecycle.persistPendingBlockDelivery, "function");
@@ -227,11 +255,13 @@ test("gaia-lifecycle: delivery identities survive a runtime replacement", async 
   const older = createPendingCompletionBlock(sessionId, "same prompt", "dispatch-older");
   const newer = createPendingCompletionBlock(sessionId, "same prompt", "dispatch-newer");
 
-  lifecycle.persistPendingBlockDelivery!(cwd, sessionId, older);
-  lifecycle.persistPendingBlockDelivery!(cwd, sessionId, newer);
+  lifecycle.persistPendingBlockDelivery!(cwd, sessionId, older, GAIA_FIXTURE_ADAPTER);
+  lifecycle.persistPendingBlockDelivery!(cwd, sessionId, newer, GAIA_FIXTURE_ADAPTER);
 
   assert.deepEqual(
-    lifecycle.readPendingBlockDeliveries!(cwd, sessionId).map((block) => block.dispatch_id),
+    lifecycle.readPendingBlockDeliveries!(cwd, sessionId, GAIA_FIXTURE_ADAPTER).map(
+      (block) => block.dispatch_id,
+    ),
     ["dispatch-older", "dispatch-newer"],
   );
 });

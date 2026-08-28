@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { contributedSkillPaths } from "../src/skills.js";
 import type { SkillCompatManifest } from "../src/skills.js";
+import { GAIA_FIXTURE_ADAPTER } from "./fixtures/gaia-adapter.js";
 
 test("gaia-skills: contributes .claude/skills/<name> for every non-claude-only entry", () => {
   const manifest: SkillCompatManifest = {
@@ -22,7 +23,7 @@ test("gaia-skills: contributes .claude/skills/<name> for every non-claude-only e
     ],
   };
 
-  const paths = contributedSkillPaths(manifest, "/worktree");
+  const paths = contributedSkillPaths(manifest, "/worktree", GAIA_FIXTURE_ADAPTER.skillRoots);
 
   assert.deepEqual(paths, [
     "/worktree/.claude/skills/codex",
@@ -30,5 +31,8 @@ test("gaia-skills: contributes .claude/skills/<name> for every non-claude-only e
   ]);
 });
 test("gaia-skills: an empty manifest contributes no paths", () => {
-  assert.deepEqual(contributedSkillPaths({ skills: [] }, "/worktree"), []);
+  assert.deepEqual(
+    contributedSkillPaths({ skills: [] }, "/worktree", GAIA_FIXTURE_ADAPTER.skillRoots),
+    [],
+  );
 });

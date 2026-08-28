@@ -1,7 +1,7 @@
 // Pi harness parity PR 2 (docs/plans/evaluate-harness-shift.md Step 4).
 //
 // Warden-equivalent pre-bash gate: intercepts `tool_call` for the built-in
-// `bash` tool BEFORE it executes and calls scripts/pi-hooks/gate.py, then —
+// `bash` tool BEFORE it executes and calls the configured gate command, then —
 // only once gate.py ALLOWS — dispatches the remaining PreToolUse policy
 // hooks (pre-bash-worktree-tmp-write.py, the seven matcher-gated
 // pre-commit-*.py checks, pre-push-merged-branch-guard.py) via
@@ -32,6 +32,12 @@ import type { RunPythonResult } from "./run-python.js";
 import { ADVISORY_MAX_LENGTH, boundLength, collectAdvisoryText, runDispatch } from "./lib/dispatch.js";
 import type { DispatchResult, RunDispatch } from "./lib/dispatch.js";
 import { resolveSessionId } from "./lib/session.js";
+import {
+  DEFAULT_PROJECT_ADAPTER_V1,
+  resolveProjectArgv,
+} from "./project-adapter.js";
+import type { ProjectAdapterV1 } from "./project-adapter.js";
+import type { RunPythonEnvironment } from "./run-python.js";
 
 export interface GateDecision {
   readonly decision: "allow" | "block";
@@ -59,12 +65,14 @@ export type RunPythonFn = (
   argv: readonly string[],
   stdinJson: unknown,
   cwd: string,
+  env?: RunPythonEnvironment,
+  timeoutMs?: number,
 ) => Promise<RunPythonResult>;
 
 export const EXTENSION_FAILURE_RELEASE_THRESHOLD = 3;
 
 // BOU-3092 option B: the PreToolUse dispatch.py spawn (~85ms) is worth
-// paying only when some PreToolUse-bound spec in scripts/pi-hooks/
+// paying only when some PreToolUse-bound policy spec
 // manifest.py could actually match the command. This is a CONSERVATIVE,
 // deliberately over-broad TS-side prefilter — each check is a strict
 // superset of its real manifest matcher, never a subset — mirroring:
@@ -83,11 +91,12 @@ export const EXTENSION_FAILURE_RELEASE_THRESHOLD = 3;
 // WOULD have matched is never acceptable — prefilters must be over-broad,
 // NEVER under-broad — so keep every check broad.
 const PRETOOLUSE_REDIRECT_CHAR = /[<>]/;
+const PRETOOLUSE_GIT_COMMIT = /(?:^|\s)(?:[^\s]+\/)?git\b[\s\S]*\bcommit\b/;
 
 export function couldMatchAnyPreToolUseSpec(command: string): boolean {
   return (
     command.includes("push") ||
-    command.includes("git commit") ||
+    PRETOOLUSE_GIT_COMMIT.test(command) ||
     command.includes("/tmp") ||
     command.includes("tmp/") ||
     PRETOOLUSE_REDIRECT_CHAR.test(command)
@@ -98,6 +107,7 @@ export interface WardenHandlerDeps {
   readonly runPythonImpl: RunPythonFn;
   readonly runDispatchImpl: RunDispatch;
   readonly sendMessage: (content: string) => void | Promise<void>;
+  readonly adapter?: ProjectAdapterV1;
 }
 
 export interface WardenHandlers {
@@ -134,10 +144,13 @@ function isDispatchInvocationFailure(result: DispatchResult): boolean {
  * `runPythonImpl`/`runDispatchImpl` (bead AC: a runnable behavioral test).
  */
 export function createWardenHandlers(deps: WardenHandlerDeps): WardenHandlers {
+  const adapter = deps.adapter ?? DEFAULT_PROJECT_ADAPTER_V1;
+  const gateCommand = adapter.policyArgv.gate;
+  const gateLabel = gateCommand.script.split("/").at(-1) ?? gateCommand.script;
   // gate.py and PreToolUse dispatch.py are independent extension
   // boundaries; each streak resets and releases only on ITS OWN health,
-  // never the other's — see docs/guides/pi-local.md for why a shared
-  // counter previously masked failures on one boundary with the other's.
+  // never the other's — a shared counter would mask failures on one
+  // boundary with the other's.
   let gateFailures = 0;
   let dispatchFailures = 0;
 
@@ -172,12 +185,12 @@ export function createWardenHandlers(deps: WardenHandlerDeps): WardenHandlers {
       tool_name: "Bash",
       tool_input: { command },
       session_id: sessionId,
-    });
+    }, adapter);
 
     if (isDispatchInvocationFailure(result)) {
       return releaseOrBlock(
         "dispatch",
-        `dispatch.py PreToolUse failed: ${result.teardown_warnings.join("; ")}`,
+        `${adapter.policyArgv.dispatch.script} PreToolUse failed: ${result.teardown_warnings.join("; ")}`,
       );
     }
     dispatchFailures = 0;
@@ -200,18 +213,20 @@ export function createWardenHandlers(deps: WardenHandlerDeps): WardenHandlers {
     let result: RunPythonResult;
     try {
       result = await deps.runPythonImpl(
-        "scripts/pi-hooks/gate.py",
-        ["--project-dir", cwd],
+        gateCommand.script,
+        resolveProjectArgv(gateCommand.argv, { cwd }),
         { command, cwd },
         cwd,
+        undefined,
+        adapter.timeouts.policyMs,
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return releaseOrBlock("gate", `gate.py failed to launch: ${message}`);
+      return releaseOrBlock("gate", `${gateLabel} failed to launch: ${message}`);
     }
 
     if (result.code !== 0) {
-      return releaseOrBlock("gate", `gate.py exited ${result.code}: ${result.stderr.trim()}`);
+      return releaseOrBlock("gate", `${gateLabel} exited ${result.code}: ${result.stderr.trim()}`);
     }
 
     let parsed: unknown;
@@ -220,14 +235,14 @@ export function createWardenHandlers(deps: WardenHandlerDeps): WardenHandlers {
     } catch {
       return releaseOrBlock(
         "gate",
-        `gate.py produced unparseable stdout: ${result.stdout.trim()}`,
+        `${gateLabel} produced unparseable stdout: ${result.stdout.trim()}`,
       );
     }
 
     if (!isGateDecision(parsed)) {
       return releaseOrBlock(
         "gate",
-        `gate.py produced an unexpected payload shape: ${result.stdout.trim()}`,
+        `${gateLabel} produced an unexpected payload shape: ${result.stdout.trim()}`,
       );
     }
 
@@ -249,7 +264,7 @@ export function createWardenHandlers(deps: WardenHandlerDeps): WardenHandlers {
       // previously discarded by this generic allow path, silently hiding
       // that the safety gate had been bypassed (PR 3535 review round 2 P2
       // finding E).
-      void deps.sendMessage(`gate.py released with a warning: ${parsed.reason}`);
+      void deps.sendMessage(`${gateLabel} released with a warning: ${parsed.reason}`);
     }
     if (!couldMatchAnyPreToolUseSpec(command)) {
       // BOU-3092 option B: no PreToolUse-bound spec could match this
@@ -276,11 +291,15 @@ export function createWardenHandlers(deps: WardenHandlerDeps): WardenHandlers {
   };
 }
 
-export default function gaiaWarden(pi: ExtensionAPI): void {
+export default function warden(
+  pi: ExtensionAPI,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
+): void {
   let projectCwd = process.cwd();
   const handlers = createWardenHandlers({
     runPythonImpl: runPython,
     runDispatchImpl: runDispatch,
+    adapter,
     sendMessage: (content) =>
       pi.sendMessage({ customType: "gaia-warden", content, display: true }),
   });
@@ -289,13 +308,17 @@ export default function gaiaWarden(pi: ExtensionAPI): void {
     projectCwd = ctx.cwd;
     handlers.onSessionStart();
     // Pi harness parity PR 3 (plan Step 8): a durable, greppable marker the
-    // no-login launch smoke (scripts/pi-launch-smoke.sh) checks for in the
-    // session file to prove this extension actually loaded and ran.
+    // A launch smoke check can look for this durable marker in the session
+    // file to prove this extension actually loaded and ran.
     pi.appendEntry("gaia-smoke", { extension: "gaia-warden" });
   });
 
   pi.on("tool_call", async (event, ctx: ExtensionContext) => {
     if (!isToolCallEventType("bash", event)) return undefined;
-    return handlers.handleBashToolCall(event.input.command, projectCwd, resolveSessionId(ctx));
+    return handlers.handleBashToolCall(
+      event.input.command,
+      projectCwd,
+      resolveSessionId(ctx, adapter),
+    );
   });
 }

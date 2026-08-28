@@ -6,13 +6,20 @@
 // regardless of which extension built it.
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import {
+  DEFAULT_PROJECT_ADAPTER_V1,
+} from "../project-adapter.js";
+import type { ProjectAdapterV1 } from "../project-adapter.js";
 
-/** Resolves a stable session identifier: the launcher's `GAIA_SESSION_ID`
+/** Resolves a stable session identifier: the launcher's adapter-configured
  * env var first (set for every Pi launch, matching the Python side's
  * ownership identity), falling back to the session runtime's own id when
  * the env var is unset (PR 3535 review round 1 P1 finding 1). */
-export function resolveSessionId(ctx: ExtensionContext): string {
-  const fromEnv = process.env.GAIA_SESSION_ID;
+export function resolveSessionId(
+  ctx: ExtensionContext,
+  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
+): string {
+  const fromEnv = process.env[adapter.sessionIdEnv];
   if (fromEnv) return fromEnv;
   try {
     return ctx.sessionManager.getSessionId() ?? "";

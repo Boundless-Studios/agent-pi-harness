@@ -1,50 +1,74 @@
 {
-  "name": "agent-pi-harness",
+  "name": "@boundless-studios/agent-pi-harness",
   "version": "0.1.0",
   "type": "module",
   "description": "Standalone Pi coding-agent harness runtime and extensions.",
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./dist/lifecycle.js",
   "types": "./dist/lifecycle.d.ts",
   "exports": {
+    ".": {
+      "types": "./dist/lifecycle.d.ts",
+      "import": "./dist/lifecycle.js",
+      "default": "./dist/lifecycle.js"
+    },
     "./lifecycle": {
       "types": "./dist/lifecycle.d.ts",
-      "import": "./dist/lifecycle.js"
+      "import": "./dist/lifecycle.js",
+      "default": "./dist/lifecycle.js"
     },
     "./skills": {
       "types": "./dist/skills.d.ts",
-      "import": "./dist/skills.js"
+      "import": "./dist/skills.js",
+      "default": "./dist/skills.js"
     },
     "./warden": {
       "types": "./dist/warden.d.ts",
-      "import": "./dist/warden.js"
+      "import": "./dist/warden.js",
+      "default": "./dist/warden.js"
     },
     "./lib/dispatch": {
       "types": "./dist/lib/dispatch.d.ts",
-      "import": "./dist/lib/dispatch.js"
+      "import": "./dist/lib/dispatch.js",
+      "default": "./dist/lib/dispatch.js"
     },
     "./lib/model-context": {
       "types": "./dist/lib/model-context.d.ts",
-      "import": "./dist/lib/model-context.js"
+      "import": "./dist/lib/model-context.js",
+      "default": "./dist/lib/model-context.js"
     },
     "./lib/session": {
       "types": "./dist/lib/session.d.ts",
-      "import": "./dist/lib/session.js"
+      "import": "./dist/lib/session.js",
+      "default": "./dist/lib/session.js"
+    },
+    "./project-adapter": {
+      "types": "./dist/project-adapter.d.ts",
+      "import": "./dist/project-adapter.js",
+      "default": "./dist/project-adapter.js"
     },
     "./run-python": {
       "types": "./dist/run-python.d.ts",
-      "import": "./dist/run-python.js"
+      "import": "./dist/run-python.js",
+      "default": "./dist/run-python.js"
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "CHANGELOG.md"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=22.19"
   },
   "scripts": {
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "build": "tsc -p tsconfig.build.json"
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
+    "consumer-smoke": "tsx test/consumer-smoke.ts"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.84.2"

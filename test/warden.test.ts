@@ -251,6 +251,11 @@ test("couldMatchAnyPreToolUseSpec: over-broad supersets mirroring the manifest m
   assert.equal(couldMatchAnyPreToolUseSpec("cp out.png tmp/e2e/out.png"), true);
 });
 
+test("couldMatchAnyPreToolUseSpec: detects option-bearing and absolute git commit commands", () => {
+  assert.equal(couldMatchAnyPreToolUseSpec("git -C /worktree commit -m message"), true);
+  assert.equal(couldMatchAnyPreToolUseSpec("/usr/bin/git --work-tree=/worktree commit"), true);
+});
+
 // ── PreToolUse dispatch wiring (PR 3535 review round 2 P1 finding C) ──────
 
 test("gaia-warden: a PreToolUse dispatch block propagates as a tool-call block", async () => {

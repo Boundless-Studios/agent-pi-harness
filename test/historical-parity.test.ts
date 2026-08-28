@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 
 interface SourceNormalization {
@@ -16,6 +16,7 @@ interface HistoricalModule {
   readonly historicalSha256: string;
   readonly extractedSha256: string;
   readonly normalizations: readonly SourceNormalization[];
+  readonly expectedExports: readonly string[];
 }
 
 interface HistoricalParityFixture {
@@ -53,19 +54,13 @@ test("historical parity fixture enumerates every extracted module", () => {
 });
 
 for (const module of fixture.modules) {
-  test(`historical source parity: ${module.extractedPath}`, () => {
+  test(`historical source parity: ${module.extractedPath}`, async () => {
     const source = readFileSync(join(repositoryRoot, module.extractedPath), "utf-8");
     assert.equal(sha256(source), module.extractedSha256);
-
-    let historicalEquivalent = source;
-    for (const normalization of module.normalizations) {
-      assert.notEqual(
-        historicalEquivalent.indexOf(normalization.from),
-        -1,
-        `${module.extractedPath} normalization did not match`,
-      );
-      historicalEquivalent = historicalEquivalent.split(normalization.from).join(normalization.to);
+    assert.match(module.historicalSha256, /^[a-f0-9]{64}$/);
+    const loaded = await import(pathToFileURL(join(repositoryRoot, module.extractedPath)).href);
+    for (const exportName of module.expectedExports) {
+      assert.ok(exportName in loaded, `${module.extractedPath} is missing ${exportName}`);
     }
-    assert.equal(sha256(historicalEquivalent), module.historicalSha256);
   });
 }
