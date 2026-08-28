@@ -116,6 +116,14 @@ export function createWardenHandlers(deps: WardenHandlerDeps): WardenHandlers {
   let dispatchFailures = 0;
   const fallbackSessionId = `pi-warden-${randomUUID()}`;
 
+  function sendAdvisory(content: string): void {
+    try {
+      void Promise.resolve(deps.sendMessage(content)).catch(() => undefined);
+    } catch {
+      // Advisory delivery cannot be allowed to break policy handling.
+    }
+  }
+
   function releaseOrBlock(
     source: "gate" | "dispatch",
     reason: string,
@@ -124,7 +132,7 @@ export function createWardenHandlers(deps: WardenHandlerDeps): WardenHandlers {
     if (count < EXTENSION_FAILURE_RELEASE_THRESHOLD) {
       return { block: true, reason };
     }
-    void deps.sendMessage(
+    sendAdvisory(
       `${source}.py unavailable — released after ${count} consecutive ${source} failures; ` +
         `fix the extension boundary. Original error: ${reason}`,
     );
@@ -162,7 +170,7 @@ export function createWardenHandlers(deps: WardenHandlerDeps): WardenHandlers {
     }
     const advisory = collectAdvisoryText(result);
     if (advisory) {
-      void deps.sendMessage(boundLength(advisory, ADVISORY_MAX_LENGTH));
+      sendAdvisory(boundLength(advisory, ADVISORY_MAX_LENGTH));
     }
     return undefined;
   }
@@ -226,7 +234,7 @@ export function createWardenHandlers(deps: WardenHandlerDeps): WardenHandlers {
       // previously discarded by this generic allow path, silently hiding
       // that the safety gate had been bypassed (PR 3535 review round 2 P2
       // finding E).
-      void deps.sendMessage(`${gateLabel} released with a warning: ${parsed.reason}`);
+      sendAdvisory(`${gateLabel} released with a warning: ${parsed.reason}`);
     }
     return handlePreToolUseDispatch(command, cwd, sessionId);
   }

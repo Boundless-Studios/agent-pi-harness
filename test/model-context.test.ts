@@ -123,3 +123,32 @@ test("resolveModelContext uses the active runtime model for fallback lookup", ()
     rmSync(cwd, { recursive: true, force: true });
   }
 });
+
+test("resolveModelContext never borrows context from a different active model", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "pi-model-context-"));
+  try {
+    const configRoot = join(cwd, "config");
+    mkdirSync(configRoot);
+    writeFileSync(
+      join(configRoot, "models.json"),
+      JSON.stringify({
+        providers: {
+          example: {
+            models: [{ id: "launch-model", contextWindow: 200_000 }],
+          },
+        },
+      }),
+    );
+    const context = {
+      model: { id: "cross-provider-model" },
+      getContextUsage: () => undefined,
+    } as any;
+
+    assert.deepEqual(
+      withLaunchEnvironment(() => resolveModelContext(cwd, context, adapter)),
+      { model: "cross-provider-model", contextWindow: undefined },
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});

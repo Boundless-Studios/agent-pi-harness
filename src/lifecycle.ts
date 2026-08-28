@@ -2112,6 +2112,18 @@ export const REENGAGE_LIMIT = 5;
 // still recoverable without another launcher restart.
 export const PENDING_BLOCK_REPLAY_MAX_ATTEMPTS = 600;
 export const PENDING_BLOCK_ORPHAN_RECOVERY_INTERVAL_MS = 5_000;
+const PENDING_BLOCK_REPLAY_INTERVAL_MS = 100;
+const PENDING_BLOCK_REPLAY_DISPATCH_OVERHEAD_MS = 15_000;
+
+export function pendingBlockReplayMaxAttempts(policyMs: number): number {
+  return Math.max(
+    PENDING_BLOCK_REPLAY_MAX_ATTEMPTS,
+    Math.ceil(
+      (policyMs + PENDING_BLOCK_REPLAY_DISPATCH_OVERHEAD_MS) /
+        PENDING_BLOCK_REPLAY_INTERVAL_MS,
+    ),
+  );
+}
 
 export function resetPendingBlockReplayState(now = Date.now()): {
   attempts: number;
@@ -2536,7 +2548,7 @@ export function registerLifecycle(
   let latestSummary = "Pi session ended without an assistant-authored summary.";
   let latestAgentRunNeedsAttention = false;
 
-  const PENDING_BLOCK_REPLAY_INTERVAL_MS = 100;
+  const pendingBlockReplayMax = pendingBlockReplayMaxAttempts(adapter.timeouts.policyMs);
   const PENDING_BLOCK_DELIVERY_RETRY_DELAY_MS = 30_000;
 
   function stopPendingBlockReplayPoll(): void {
@@ -2586,7 +2598,7 @@ export function registerLifecycle(
   function schedulePendingBlockReplayPoll(): void {
     if (
       pendingBlockReplayTimer !== undefined ||
-      pendingBlockReplayAttempts >= PENDING_BLOCK_REPLAY_MAX_ATTEMPTS
+      pendingBlockReplayAttempts >= pendingBlockReplayMax
     ) {
       return;
     }

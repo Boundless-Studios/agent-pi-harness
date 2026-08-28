@@ -294,6 +294,21 @@ test("agent-pi-harness-warden: a non-blocking PreToolUse advisory surfaces via s
   assert.match(sent[0], /advisory note/);
 });
 
+test("agent-pi-harness-warden: rejected asynchronous advisories are contained", async () => {
+  const handlers = createWardenHandlers({
+    runPythonImpl: async () =>
+      stubResult({ stdout: JSON.stringify({ decision: "allow", reason: "", rule: "ok" }) }),
+    runDispatchImpl: async () =>
+      stubDispatch({
+        results: [{ hook: "advisory.py", decision: "allow", stdout: "notice" }],
+      }),
+    sendMessage: async () => Promise.reject(new Error("stale runtime")),
+  });
+
+  assert.equal(await handlers.handleBashToolCall("git status", "/tmp/project"), undefined);
+  await new Promise((resolve) => setImmediate(resolve));
+});
+
 test("agent-pi-harness-warden: a matcher-filtered PreToolUse dispatch (no specs matched) is a silent no-op", async () => {
   const sent: string[] = [];
   const handlers = createWardenHandlers({

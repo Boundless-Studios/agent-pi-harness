@@ -68,12 +68,12 @@ function readModelsJson(path: string): ModelsJsonFile | undefined {
   }
 }
 
-/** Looks up `provider`'s model list in one `models.json`-shaped file,
- * preferring an exact `modelId` match and falling back to the provider's
- * first model when no exact id is available. */
+/** Looks up `provider`'s model list in one `models.json`-shaped file.
+ * The provider's first model is only a safe fallback when no active model id
+ * is known; otherwise a mismatch must remain unresolved. */
 function lookupModelsJson(path: string, provider: string, modelId: string): ModelContext {
   const models = readModelsJson(path)?.providers?.[provider]?.models ?? [];
-  const match = (modelId && models.find((entry) => entry.id === modelId)) || models[0];
+  const match = modelId ? models.find((entry) => entry.id === modelId) : models[0];
   const contextWindow = typeof match?.contextWindow === "number" ? match.contextWindow : undefined;
   const model = typeof match?.id === "string" ? match.id : undefined;
   return { model, contextWindow };

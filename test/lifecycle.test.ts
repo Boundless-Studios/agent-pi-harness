@@ -27,6 +27,7 @@ import {
   markPendingBlockDelivered as markPendingBlockDeliveredBase,
   PENDING_BLOCK_REPLAY_MAX_ATTEMPTS,
   PENDING_BLOCK_ORPHAN_RECOVERY_INTERVAL_MS,
+  pendingBlockReplayMaxAttempts,
   processIncarnation,
   persistLifecycleBudget as persistLifecycleBudgetBase,
   persistActiveTurn as persistActiveTurnBase,
@@ -1402,6 +1403,7 @@ test("agent-pi-harness-lifecycle: replay probe covers the full Stop dispatch dep
   assert.ok(PENDING_BLOCK_REPLAY_MAX_ATTEMPTS * 100 >= 50_000);
   assert.ok(PENDING_BLOCK_REPLAY_MAX_ATTEMPTS * 100 <= 60_000);
   assert.equal(PENDING_BLOCK_ORPHAN_RECOVERY_INTERVAL_MS, 5_000);
+  assert.ok(pendingBlockReplayMaxAttempts(90_000) * 100 >= 105_000);
 });
 
 test("agent-pi-harness-lifecycle: delayed orphan recovery starts a fresh replay window", () => {
