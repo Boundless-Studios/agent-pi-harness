@@ -2068,10 +2068,12 @@ test("agent-pi-harness-lifecycle: interactive input clears stale Stop-dispatch f
   await handlers.onAgentSettled("/tmp/project", {});
   await handlers.onAgentSettled("/tmp/project", {});
   assert.equal(handlers.stopDispatchFailureCount(), 2);
+  assert.equal(handlers.reengageCount(), 2);
 
   await handlers.onInput("/tmp/project", { prompt: "continue" });
 
   assert.equal(handlers.stopDispatchFailureCount(), 0);
+  assert.equal(handlers.reengageCount(), 0);
   stopDispatchFailing = false;
 });
 
@@ -2716,7 +2718,7 @@ test("isStaleRuntimeError only matches Pi's exact stale-runtime error text", () 
   assert.equal(isStaleRuntimeError("not an Error instance"), false);
 });
 
-test("agent-pi-harness-lifecycle.ts never calls a captured pi.sendMessage/sendUserMessage/appendEntry outside safePiCall", () => {
+test("agent-pi-harness-lifecycle.ts guards every captured Pi notification", () => {
   // Pragmatic lint-level static check (finding text's own suggestion): every
   // direct `pi.<method>(` call site in the default export must be wrapped by
   // `safePiCall(...)`, since ALL of them happen after an `await` on the far
@@ -2737,7 +2739,7 @@ test("agent-pi-harness-lifecycle.ts never calls a captured pi.sendMessage/sendUs
     // `safePiCall(` on this line or one of the two lines above it (covers
     // the common `safePiCall("label", () =>\n  pi.foo(...)` wrap shape).
     const context = lines.slice(Math.max(0, index - 2), index + 1).join("\n");
-    if (!context.includes("safePiCall(")) {
+    if (!context.includes("safePiCall(") && !context.includes("safePiAsyncCall(")) {
       bareCallLines.push(index + 1);
     }
   });

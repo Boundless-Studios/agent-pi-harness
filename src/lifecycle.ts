@@ -486,6 +486,7 @@ export interface LifecycleBudget {
 
 interface LifecycleBudgetMutation {
   readonly reengageDelta?: number;
+  readonly resetReengage?: boolean;
   readonly stopDispatchFailureDelta?: number;
   readonly stopDispatchFailureOrder?: number;
   readonly resetStopDispatchFailure?: boolean;
@@ -1083,9 +1084,11 @@ function updateLifecycleBudget(
     const reengageIncremented = requestedReengageDelta > 0 &&
       (mutation.reengageLimit === undefined ||
         current.reengage_count < mutation.reengageLimit);
-    const reengageCount = reengageIncremented
-      ? current.reengage_count + requestedReengageDelta
-      : current.reengage_count;
+    const reengageCount = mutation.resetReengage
+      ? 0
+      : reengageIncremented
+        ? current.reengage_count + requestedReengageDelta
+        : current.reengage_count;
     const stopDispatchFailureCount = mutation.resetStopDispatchFailure
       ? 0
       : current.stop_dispatch_failure_count + (mutation.stopDispatchFailureDelta ?? 0);
@@ -2284,10 +2287,14 @@ export function createLifecycleHandlers(deps: LifecycleHandlerDeps): LifecycleHa
     // Stop-dispatch failure state until the retry settles.
     if (payload.source !== "extension" && !payload.streamingBehavior) {
       const reset = persistBudget({
+        resetReengage: true,
         resetStopDispatchFailure: true,
         preserveStopDispatchFailureOrder: true,
       });
-      if (!reset) stopDispatchFailureCount = 0;
+      if (!reset) {
+        reengageCount = 0;
+        stopDispatchFailureCount = 0;
+      }
     }
     const result = await deps.runDispatch("UserPromptSubmit", cwd, payload, adapter);
     if (result.block) {
@@ -2783,10 +2790,10 @@ export function registerLifecycle(
         schedulePendingBlockReplayPoll();
       }
     },
-    sendMessage: (content) => {
-      safePiCall("sendMessage", () =>
-        pi.sendMessage({ customType: "agent-pi-harness-lifecycle", content, display: true }),
-      );
+    sendMessage: async (content) => {
+      await safePiAsyncCall("sendMessage", async () => {
+        await pi.sendMessage({ customType: "agent-pi-harness-lifecycle", content, display: true });
+      });
     },
     appendEntry: (customType, data) => {
       safePiCall("appendEntry", () => pi.appendEntry(customType, data));
@@ -2895,7 +2902,11 @@ export function registerLifecycle(
         rmSync(pendingSummaryPath(projectCwd, currentSessionId, adapter), { force: true });
         writeFileSync(deliveredSummaryPath(projectCwd, currentSessionId, adapter), `${latestSummary}\n`, { mode: 0o600 });
       }
-      if (process.stderr.isTTY) ctx.ui.notify(`Session summary\n\n${latestSummary}`, "info");
+      if (process.stderr.isTTY) {
+        safePiCall("session summary notification", () =>
+          ctx.ui.notify(`Session summary\n\n${latestSummary}`, "info"),
+        );
+      }
     }
   });
 
