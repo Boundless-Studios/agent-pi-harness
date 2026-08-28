@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { contributedSkillPaths } from "../src/skills.js";
+import skills, { contributedSkillPaths } from "../src/skills.js";
 import type { SkillCompatManifest } from "../src/skills.js";
 import { GAIA_FIXTURE_ADAPTER } from "./fixtures/gaia-adapter.js";
 
@@ -35,4 +35,12 @@ test("agent-pi-harness-skills: an empty manifest contributes no paths", () => {
     contributedSkillPaths({ skills: [] }, "/worktree", GAIA_FIXTURE_ADAPTER.skillRoots),
     [],
   );
+});
+
+test("skills registration requires an explicit project adapter", () => {
+  let registrations = 0;
+  assert.doesNotThrow(() =>
+    skills({ on: () => { registrations += 1; } } as any),
+  );
+  assert.equal(registrations, 0);
 });

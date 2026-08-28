@@ -4,13 +4,24 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createLifecycleHandlers } from "../src/lifecycle.js";
+import { registerLifecycle } from "../src/lifecycle.js";
 import { createWardenHandlers } from "../src/warden.js";
+import { registerWarden } from "../src/warden.js";
+import { registerSkills } from "../src/skills.js";
 import {
   createProjectAdapterV1,
   parseProjectAdapterV1,
   type ProjectAdapterV1
 } from "../src/project-adapter.js";
 import { GAIA_FIXTURE_ADAPTER } from "./fixtures/gaia-adapter.js";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+function compilePiRegistrationBoundary(pi: ExtensionAPI): void {
+  registerLifecycle(pi, validAdapter);
+  registerWarden(pi, validAdapter);
+  registerSkills(pi, validAdapter);
+}
+void compilePiRegistrationBoundary;
 
 const validAdapter: ProjectAdapterV1 = {
   version: 1,
@@ -136,7 +147,7 @@ test("project adapter validation rejects unknown keys at every object level", ()
   );
 });
 
-test("project adapter validation requires explicit executable resolution and rejects shell wrappers", () => {
+test("project adapter validation treats lifecycle argv as trusted configuration", () => {
   assert.throws(
     () =>
       parseProjectAdapterV1({
@@ -159,7 +170,7 @@ test("project adapter validation requires explicit executable resolution and rej
       } as unknown),
     /relative executable/,
   );
-  assert.throws(
+  assert.doesNotThrow(
     () =>
       parseProjectAdapterV1({
         ...validAdapter,
@@ -168,9 +179,8 @@ test("project adapter validation requires explicit executable resolution and rej
           tabColor: ["sh", "-c", "true"],
         },
       } as unknown),
-    /shell/,
   );
-  assert.throws(
+  assert.doesNotThrow(
     () =>
       parseProjectAdapterV1({
         ...validAdapter,
@@ -179,7 +189,6 @@ test("project adapter validation requires explicit executable resolution and rej
           tabColor: ["python3", "-c", "print('unsafe')"],
         },
       } as unknown),
-    /shell/,
   );
   for (const argv of [
     ["bash", "-ctrue"],
@@ -188,7 +197,7 @@ test("project adapter validation requires explicit executable resolution and rej
     ["node", "--eval", "process.exit()"],
     ["node", "--eval=process.exit()"],
   ]) {
-    assert.throws(
+    assert.doesNotThrow(
       () =>
         parseProjectAdapterV1({
           ...validAdapter,
@@ -197,7 +206,6 @@ test("project adapter validation requires explicit executable resolution and rej
             tabColor: argv,
           },
         } as unknown),
-      /shell/,
     );
   }
   assert.doesNotThrow(() =>
@@ -212,7 +220,7 @@ test("project adapter validation requires explicit executable resolution and rej
   assert.doesNotThrow(() => parseProjectAdapterV1(GAIA_FIXTURE_ADAPTER));
 });
 
-test("Gaia parity adapter keeps the extracted project bindings outside the runtime", () => {
+test("Gaia source adapter keeps project bindings outside the runtime", () => {
   assert.equal(GAIA_FIXTURE_ADAPTER.projectPaths.stateRoot, ".gaia/pi-finalization");
   assert.equal(GAIA_FIXTURE_ADAPTER.policyArgv.gate.script, "scripts/pi-hooks/gate.py");
   assert.deepEqual(GAIA_FIXTURE_ADAPTER.skillRoots, [".claude/skills"]);
@@ -288,12 +296,18 @@ test("warden handlers pass adapter commands, arguments, timeout, and identity", 
   assert.equal(dispatchAdapter, validAdapter);
 });
 
-test("the neutral default adapter completes session start with empty command output", async () => {
+test("operator status failures are advisory and do not stop session startup", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-neutral-status-"));
   const handlers = new Map<string, (...args: any[]) => unknown>();
   const statuses: string[] = [];
+  let execResult: () => Promise<{ code: number; stdout: string; stderr: string }> = async () => {
+    throw new Error("status command timed out");
+  };
   const pi = {
-    exec: async () => ({ code: 0, stdout: "", stderr: "" }),
+    exec: (_command: string, argv: string[]) =>
+      argv.length > 0
+        ? Promise.resolve({ code: 0, stdout: "", stderr: "" })
+        : execResult(),
     on: (event: string, handler: (...args: any[]) => unknown) => {
       handlers.set(event, handler);
     },
@@ -312,11 +326,20 @@ test("the neutral default adapter completes session start with empty command out
 
   try {
     const lifecycle = (await import("../src/lifecycle.js")).default;
-    lifecycle(pi);
+    lifecycle(pi, validAdapter);
     const sessionStart = handlers.get("session_start");
     assert.ok(sessionStart);
-    await sessionStart({}, context);
-    assert.deepEqual(statuses, ["worktree: file://" + cwd, "worktree: file://" + cwd]);
+    for (const result of [
+      () => Promise.reject(new Error("status command timed out")),
+      () => Promise.resolve({ code: 1, stdout: "", stderr: "failed" }),
+      () => Promise.resolve({ code: 0, stdout: "not-json", stderr: "" }),
+    ]) {
+      execResult = result;
+      await assert.doesNotReject(async () => {
+        await sessionStart({}, context);
+      });
+    }
+    assert.equal(statuses.length, 6);
   } finally {
     try {
       await handlers.get("session_shutdown")?.({ reason: "switch" }, context);

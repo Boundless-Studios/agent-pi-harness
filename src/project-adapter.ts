@@ -103,7 +103,7 @@ function assertArgv(value: unknown, field: string, requireOne = false): asserts 
 
 function assertLifecycleIntentArgv(value: unknown, field: string): asserts value is readonly string[] {
   assertArgv(value, field, true);
-  const [executable, ...argv] = value;
+  const [executable] = value;
   if (
     executable.startsWith("./") ||
     executable.startsWith("../") ||
@@ -111,24 +111,6 @@ function assertLifecycleIntentArgv(value: unknown, field: string): asserts value
     executable.startsWith("..\\")
   ) {
     throw new TypeError(`${field}[0] must not be a relative executable`);
-  }
-
-  const executableName = executable.split(/[\\/]/).at(-1)?.toLowerCase();
-  const usesShellCommand =
-    executableName !== undefined &&
-    ["sh", "bash", "zsh", "dash"].includes(executableName) &&
-    argv.some((argument) => argument.startsWith("-c"));
-  const usesPythonCommand =
-    (executableName === "python" || executableName === "python3") &&
-    argv.some((argument) => argument.startsWith("-c"));
-  const usesNodeCommand =
-    executableName === "node" &&
-    argv.some(
-      (argument) =>
-        argument.startsWith("-e") || argument === "--eval" || argument.startsWith("--eval="),
-    );
-  if (usesShellCommand || usesPythonCommand || usesNodeCommand) {
-    throw new TypeError(`${field} must not use a shell or interpreter command string`);
   }
 }
 
@@ -248,7 +230,10 @@ export function resolveProjectPath(cwd: string, relativePath: string): string {
   return join(cwd, relativePath);
 }
 
-/** Neutral defaults keep the runtime useful for projects that do not need a project-specific adapter. */
+/**
+ * Storage and discovery defaults for pure helpers. Policy-bearing extension
+ * registration never uses this value and always requires an explicit adapter.
+ */
 export const DEFAULT_PROJECT_ADAPTER_V1 = createProjectAdapterV1({
   version: PROJECT_ADAPTER_VERSION,
   projectPaths: {

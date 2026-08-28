@@ -1,8 +1,28 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+interface ExportConditions {
+  readonly default: string;
+  readonly import: string;
+  readonly types: string;
+}
+
+interface InstalledManifest {
+  readonly name?: string;
+  readonly exports?: Readonly<Record<string, ExportConditions>>;
+  readonly dependencies?: Readonly<Record<string, string>>;
+  readonly peerDependencies?: Readonly<Record<string, string>>;
+}
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const temporaryRoot = mkdtempSync(join(tmpdir(), "agent-pi-harness-consumer-"));
@@ -33,14 +53,16 @@ try {
     ],
     { cwd: consumerRoot, stdio: "inherit" },
   );
+
+  const installedRoot = join(
+    consumerRoot,
+    "node_modules",
+    "@boundless-studios",
+    "agent-pi-harness",
+  );
   const packageJson = JSON.parse(
-    readFileSync(join(consumerRoot, "node_modules", "@boundless-studios", "agent-pi-harness", "package.json"), "utf8"),
-  ) as {
-    name?: string;
-    exports?: Record<string, unknown>;
-    dependencies?: Record<string, string>;
-    peerDependencies?: Record<string, string>;
-  };
+    readFileSync(join(installedRoot, "package.json"), "utf8"),
+  ) as InstalledManifest;
   if (packageJson.name !== "@boundless-studios/agent-pi-harness") {
     throw new Error(`consumer installed unexpected package: ${packageJson.name ?? "<missing>"}`);
   }
@@ -50,55 +72,67 @@ try {
   if (packageJson.peerDependencies?.["@earendil-works/pi-coding-agent"] !== "0.84.2") {
     throw new Error("packed package does not declare the exact supported Pi peer");
   }
-  const installedRoot = join(
-    consumerRoot,
-    "node_modules",
-    "@boundless-studios",
-    "agent-pi-harness",
-  );
-  for (const artifact of [
-    "dist/lifecycle.js",
-    "dist/lifecycle.d.ts",
-    "dist/project-adapter.js",
-    "dist/project-adapter.d.ts",
-    "dist/lib/dispatch.js",
-    "dist/lib/dispatch.d.ts",
-  ]) {
-    if (!existsSync(join(installedRoot, artifact))) {
-      throw new Error(`packed package is missing ${artifact}`);
-    }
-  }
   if (existsSync(join(installedRoot, "node_modules", "@earendil-works", "pi-coding-agent"))) {
     throw new Error("packed package installed a nested Pi runtime");
   }
+  if (!existsSync(join(installedRoot, "LICENSE"))) {
+    throw new Error("packed package is missing LICENSE");
+  }
+
+  const exportedEntries = Object.entries(packageJson.exports ?? {});
+  if (exportedEntries.length === 0) throw new Error("packed package has no exports");
+  const specifiers = exportedEntries.map(([subpath, conditions]) => {
+    for (const [condition, target] of Object.entries(conditions)) {
+      if (!["default", "import", "types"].includes(condition) || !target.startsWith("./")) {
+        throw new Error(`invalid ${subpath} export condition ${condition}: ${target}`);
+      }
+      if (!existsSync(join(installedRoot, target))) {
+        throw new Error(`packed package is missing ${subpath} ${condition} target ${target}`);
+      }
+    }
+    return subpath === "." ? packageJson.name! : `${packageJson.name}${subpath.slice(1)}`;
+  });
+
   execFileSync(
     process.execPath,
     [
       "--input-type=module",
       "-e",
       [
-        'const root = await import("@boundless-studios/agent-pi-harness");',
-        'const lifecycle = await import("@boundless-studios/agent-pi-harness/lifecycle");',
-        'const skills = await import("@boundless-studios/agent-pi-harness/skills");',
-        'const warden = await import("@boundless-studios/agent-pi-harness/warden");',
-        'const dispatch = await import("@boundless-studios/agent-pi-harness/lib/dispatch");',
-        'const modelContext = await import("@boundless-studios/agent-pi-harness/lib/model-context");',
-        'const session = await import("@boundless-studios/agent-pi-harness/lib/session");',
-        'const adapter = await import("@boundless-studios/agent-pi-harness/project-adapter");',
-        'const python = await import("@boundless-studios/agent-pi-harness/run-python");',
-        'if (typeof root.default !== "function") throw new Error("root export is not callable");',
-        'if (root.default !== lifecycle.default) throw new Error("root and lifecycle entry points differ");',
-        'if (typeof lifecycle.createLifecycleHandlers !== "function") throw new Error("lifecycle export missing");',
-        'if (typeof skills.contributedSkillPaths !== "function") throw new Error("skills export missing");',
-        'if (typeof warden.createWardenHandlers !== "function") throw new Error("warden export missing");',
-        'if (typeof dispatch.collectAdvisoryText !== "function") throw new Error("dispatch export missing");',
-        'if (typeof modelContext.resolveModelContext !== "function") throw new Error("model-context export missing");',
-        'if (typeof session.resolveSessionId !== "function") throw new Error("session export missing");',
-        'if (typeof adapter.createProjectAdapterV1 !== "function") throw new Error("adapter export missing");',
-        'if (typeof python.runPython !== "function") throw new Error("run-python export missing");',
-        'if (adapter.DEFAULT_PROJECT_ADAPTER_V1.modelProvider !== "default") throw new Error("neutral adapter missing");',
+        `const specifiers = ${JSON.stringify(specifiers)};`,
+        "const entries = await Promise.all(specifiers.map((specifier) => import(specifier)));",
+        'if (entries.length !== specifiers.length) throw new Error("not every export imported");',
+        'if (typeof entries[0].default !== "function") throw new Error("root export is not callable");',
+        "let registrations = 0;",
+        "entries[0].default({ on: () => { registrations += 1; } });",
+        'if (registrations !== 0) throw new Error("root entry point activated without an adapter");',
       ].join("\n"),
     ],
+    { cwd: consumerRoot, stdio: "inherit" },
+  );
+
+  const typeImports = specifiers
+    .map((specifier, index) => `import * as entry${index} from ${JSON.stringify(specifier)};`)
+    .join("\n");
+  const typeUses = specifiers.map((_specifier, index) => `void entry${index};`).join("\n");
+  writeFileSync(join(consumerRoot, "index.ts"), `${typeImports}\n${typeUses}\n`);
+  writeFileSync(
+    join(consumerRoot, "tsconfig.json"),
+    JSON.stringify({
+      compilerOptions: {
+        module: "ESNext",
+        moduleResolution: "Bundler",
+        target: "ES2022",
+        strict: true,
+        skipLibCheck: false,
+        noEmit: true,
+      },
+      files: ["index.ts"],
+    }),
+  );
+  execFileSync(
+    join(repositoryRoot, "node_modules", ".bin", "tsc"),
+    ["--project", "tsconfig.json"],
     { cwd: consumerRoot, stdio: "inherit" },
   );
 } finally {

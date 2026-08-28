@@ -1,14 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  couldMatchAnyPreToolUseSpec,
-  createWardenHandlers,
+  createWardenHandlers as createWardenHandlersBase,
   EXTENSION_FAILURE_RELEASE_THRESHOLD,
   isGateDecision,
 } from "../src/warden.js";
+import warden from "../src/warden.js";
 import type { ToolCallBlockResult } from "../src/warden.js";
 import type { RunPythonResult } from "../src/run-python.js";
 import type { DispatchResult } from "../src/lib/dispatch.js";
+import { GAIA_FIXTURE_ADAPTER } from "./fixtures/gaia-adapter.js";
+
+type TestWardenHandlerDeps = Omit<Parameters<typeof createWardenHandlersBase>[0], "adapter">;
+const createWardenHandlers = (deps: TestWardenHandlerDeps) =>
+  createWardenHandlersBase({ ...deps, adapter: GAIA_FIXTURE_ADAPTER });
 
 function stubResult(overrides: Partial<RunPythonResult>): RunPythonResult {
   return { code: 0, stdout: "", stderr: "", ...overrides };
@@ -38,18 +43,43 @@ function allowingDispatch(): Promise<DispatchResult> {
   return Promise.resolve(stubDispatch({}));
 }
 
-test("agent-pi-harness-warden: allows when gate.py returns decision=allow and PreToolUse dispatch is clean", async () => {
+test("agent-pi-harness-warden: dispatches an arbitrary project command after gate approval", async () => {
+  let dispatchCalls = 0;
   const handlers = createWardenHandlers({
     runPythonImpl: async () =>
       stubResult({
         stdout: JSON.stringify({ decision: "allow", reason: "", rule: "ok" }),
       }),
-    runDispatchImpl: allowingDispatch,
+    runDispatchImpl: async () => {
+      dispatchCalls += 1;
+      return stubDispatch({});
+    },
     sendMessage: noopSendMessage,
   });
 
-  const result = await handlers.handleBashToolCall("gmake test", "/tmp/project");
+  const result = await handlers.handleBashToolCall("cargo fmt", "/tmp/project");
   assert.equal(result, undefined);
+  assert.equal(dispatchCalls, 1);
+});
+
+test("agent-pi-harness-warden: refuses to construct policy handlers without an adapter", () => {
+  assert.throws(
+    () =>
+      createWardenHandlersBase({
+        runPythonImpl: async () => stubResult({}),
+        runDispatchImpl: allowingDispatch,
+        sendMessage: noopSendMessage,
+      } as any),
+    /adapter/i,
+  );
+});
+
+test("warden registration requires an explicit project adapter", () => {
+  let registrations = 0;
+  assert.doesNotThrow(() =>
+    warden({ on: () => { registrations += 1; } } as any),
+  );
+  assert.equal(registrations, 0);
 });
 test("agent-pi-harness-warden: blocks when gate.py returns decision=block, never reaching dispatch", async () => {
   const handlers = createWardenHandlers({
@@ -134,7 +164,7 @@ test("agent-pi-harness-warden: releases after N consecutive gate.py extension-le
   assert.match(sent[0], /released after 3 consecutive gate failures/);
 });
 
-test("agent-pi-harness-warden: a well-formed gate.py decision resets gateFailureCount even when the command is a prefilter no-op", async () => {
+test("agent-pi-harness-warden: a well-formed gate decision resets its failure count", async () => {
   // PR 3541 review finding (P1, third round): a healthy gate.py call is
   // proof the GATE boundary recovered regardless of whether the command
   // goes on to invoke dispatch.py at all — reaching dispatch.py is a
@@ -142,7 +172,7 @@ test("agent-pi-harness-warden: a well-formed gate.py decision resets gateFailure
   let stdout = "not json";
   const handlers = createWardenHandlers({
     runPythonImpl: async () => stubResult({ stdout }),
-    runDispatchImpl: unreachableDispatch,
+    runDispatchImpl: allowingDispatch,
     sendMessage: noopSendMessage,
   });
 
@@ -150,9 +180,8 @@ test("agent-pi-harness-warden: a well-formed gate.py decision resets gateFailure
   await handlers.handleBashToolCall("echo hi", "/tmp/project");
   assert.equal(handlers.gateFailureCount(), 2);
 
-  // "echo hi" is a prefilter no-op (never matches couldMatchAnyPreToolUseSpec),
-  // so dispatch.py is never invoked here — yet the gate streak still resets
-  // because gate.py itself produced a well-formed decision.
+  // A successful gate resets its own boundary even though dispatch has an
+  // independent health counter.
   stdout = JSON.stringify({ decision: "allow", reason: "", rule: "ok" });
   const result = await handlers.handleBashToolCall("echo hi", "/tmp/project");
   assert.equal(result, undefined);
@@ -224,38 +253,6 @@ test("isGateDecision narrows a well-formed payload and rejects a malformed one",
   assert.equal(isGateDecision(null), false);
 });
 
-test("couldMatchAnyPreToolUseSpec: over-broad supersets mirroring the manifest matchers (BOU-3092 option B)", () => {
-  assert.equal(couldMatchAnyPreToolUseSpec("ls -la"), false);
-  assert.equal(couldMatchAnyPreToolUseSpec("grep -rn foo ."), false);
-  assert.equal(couldMatchAnyPreToolUseSpec("gmake test"), false);
-
-  assert.equal(couldMatchAnyPreToolUseSpec("git push origin main"), true);
-  assert.equal(couldMatchAnyPreToolUseSpec("npm run push-release"), true);
-  assert.equal(couldMatchAnyPreToolUseSpec("git commit -m wip"), true);
-  assert.equal(couldMatchAnyPreToolUseSpec("cat /tmp/x"), true);
-  assert.equal(couldMatchAnyPreToolUseSpec("echo hi > out.txt"), true);
-  assert.equal(couldMatchAnyPreToolUseSpec("cat < in.txt"), true);
-
-  // PR 3541 review finding (P2): pre-bash-worktree-tmp-write.py also
-  // matches a bare worktree-relative "tmp/..." form with NO leading slash
-  // and no redirect char — the prefilter must be a strict SUPERSET of every
-  // real manifest matcher, never a subset. A false positive here only costs
-  // a dispatch.py spawn that comes back empty; missing a command the real
-  // hook WOULD have matched is the failure mode this invariant exists to
-  // prevent.
-  assert.equal(couldMatchAnyPreToolUseSpec("mkdir -p tmp/proofs/screenshots"), true);
-  assert.equal(
-    couldMatchAnyPreToolUseSpec("PROOF_BUNDLE_ROOT=tmp/screenshots ./run.sh"),
-    true,
-  );
-  assert.equal(couldMatchAnyPreToolUseSpec("cp out.png tmp/e2e/out.png"), true);
-});
-
-test("couldMatchAnyPreToolUseSpec: detects option-bearing and absolute git commit commands", () => {
-  assert.equal(couldMatchAnyPreToolUseSpec("git -C /worktree commit -m message"), true);
-  assert.equal(couldMatchAnyPreToolUseSpec("/usr/bin/git --work-tree=/worktree commit"), true);
-});
-
 // ── PreToolUse dispatch wiring (PR 3535 review round 2 P1 finding C) ──────
 
 test("agent-pi-harness-warden: a PreToolUse dispatch block propagates as a tool-call block", async () => {
@@ -308,16 +305,13 @@ test("agent-pi-harness-warden: a matcher-filtered PreToolUse dispatch (no specs 
     },
   });
 
-  // "git commit" passes the BOU-3092 option B prefilter (so this exercises
-  // dispatch.py's OWN matcher-filtering returning empty results), unlike a
-  // prefilter-skipped command which never reaches runDispatchImpl at all
-  // (covered separately below).
+  // Project dispatch owns matcher filtering and may return an empty result.
   const result = await handlers.handleBashToolCall("git commit -m wip", "/tmp/project");
   assert.equal(result, undefined);
   assert.deepEqual(sent, []);
 });
 
-test("agent-pi-harness-warden: BOU-3092 option B prefilter skips the dispatch.py spawn for an ls-class command", async () => {
+test("agent-pi-harness-warden: dispatches an ls-class command to project policy", async () => {
   let dispatchCalls = 0;
   const handlers = createWardenHandlers({
     runPythonImpl: async () =>
@@ -331,10 +325,10 @@ test("agent-pi-harness-warden: BOU-3092 option B prefilter skips the dispatch.py
 
   const result = await handlers.handleBashToolCall("ls -la", "/tmp/project");
   assert.equal(result, undefined);
-  assert.equal(dispatchCalls, 0, "dispatch.py must not be spawned for a command no spec could match");
+  assert.equal(dispatchCalls, 1);
 });
 
-test("agent-pi-harness-warden: BOU-3092 option B prefilter still dispatches push/tmp/redirect/git-commit commands", async () => {
+test("agent-pi-harness-warden: dispatches varied commands without project-specific matching", async () => {
   let dispatchCalls = 0;
   const handlers = createWardenHandlers({
     runPythonImpl: async () =>
@@ -381,15 +375,7 @@ test("agent-pi-harness-warden: PreToolUse dispatch-invocation failures release i
   assert.match(sent[0], /released after 3 consecutive dispatch failures/);
 });
 
-test("agent-pi-harness-warden: an interleaved prefilter no-op does not mask a broken dispatch.py's failure streak", async () => {
-  // PR 3541 review finding (P1, second round): the prefilter no-op path
-  // used to reset the (then-shared) failure counter unconditionally — a
-  // genuine no-op (it never probed dispatch.py at all) is not evidence the
-  // dispatch.py boundary is healthy. That masked a broken dispatch.py
-  // whenever a non-matching command (e.g. `ls`) interleaved with a
-  // matching one (e.g. `git push`): the streak never reached the release
-  // threshold, so every later push stayed blocked forever instead of
-  // eventually releasing.
+test("agent-pi-harness-warden: arbitrary commands contribute to the dispatch failure streak", async () => {
   const sent: string[] = [];
   const handlers = createWardenHandlers({
     runPythonImpl: async () =>
@@ -403,20 +389,12 @@ test("agent-pi-harness-warden: an interleaved prefilter no-op does not mask a br
 
   const results = [];
   for (let i = 0; i < EXTENSION_FAILURE_RELEASE_THRESHOLD; i += 1) {
-    results.push(await handlers.handleBashToolCall("git push origin main", "/tmp/project"));
-    // A prefilter-skipped no-op interleaved between every failing dispatch
-    // attempt — this must NOT reset the dispatch streak. gate.py DOES
-    // succeed on this call (it's a well-formed "allow"), so gateFailureCount
-    // stays at 0 throughout — it was never incremented in this run.
-    const noop = await handlers.handleBashToolCall("ls -la", "/tmp/project");
-    assert.equal(noop, undefined);
+    results.push(await handlers.handleBashToolCall("cargo fmt", "/tmp/project"));
   }
 
   for (let i = 0; i < EXTENSION_FAILURE_RELEASE_THRESHOLD - 1; i += 1) {
     assert.equal(results[i]?.block, true, `push attempt ${i} should still block`);
   }
-  // Despite the interleaved no-ops, the streak still reaches the threshold
-  // and the final matching (push) attempt releases.
   assert.equal(results[EXTENSION_FAILURE_RELEASE_THRESHOLD - 1], undefined);
   assert.equal(handlers.dispatchFailureCount(), EXTENSION_FAILURE_RELEASE_THRESHOLD);
   assert.equal(handlers.gateFailureCount(), 0);

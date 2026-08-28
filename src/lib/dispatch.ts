@@ -1,12 +1,10 @@
-// Pi harness parity PR 2 (docs/plans/evaluate-harness-shift.md Step 4).
+// Extracted runtime; source attribution is recorded in the extraction-provenance fixture.
 //
-// Shared dispatch.py invocation, result shape, and advisory-surfacing
-// helpers used by BOTH agent-pi-harness-lifecycle.ts (PostToolUse/Stop/UserPromptSubmit/
-// SessionStart/SessionEnd) and agent-pi-harness-warden.ts (PreToolUse, PR 3535 review
-// round 2 P1 finding C) — extracted here so neither extension duplicates the
-// other's dispatch.py subprocess contract or its advisory-text formatting.
+// Shared project-dispatch invocation, result shape, and advisory-surfacing
+// helpers used by both lifecycle and Warden registration.
 
 import { runPython } from "../run-python.js";
+import type { RunPythonEnvironment } from "../run-python.js";
 import {
   DEFAULT_PROJECT_ADAPTER_V1,
   resolveProjectArgv,
@@ -54,7 +52,7 @@ export type RunDispatch = (
   event: string,
   cwd: string,
   payload: Record<string, unknown>,
-  adapter?: ProjectAdapterV1,
+  adapter: ProjectAdapterV1,
 ) => Promise<DispatchResult>;
 
 /** Total characters of surfaced advisory text before truncation (bound per PR
@@ -96,7 +94,7 @@ export function collectAdvisoryText(result: DispatchResult): string {
 export function budgetGuardEnvOverride(
   payload: Record<string, unknown>,
   adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
-): NodeJS.ProcessEnv | undefined {
+): RunPythonEnvironment | undefined {
   const window = payload.context_window;
   if (typeof window !== "number" || !Number.isFinite(window) || window <= 0) {
     return undefined;
@@ -111,7 +109,7 @@ export async function runDispatch(
   event: string,
   cwd: string,
   payload: Record<string, unknown>,
-  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
+  adapter: ProjectAdapterV1,
 ): Promise<DispatchResult> {
   const command = adapter.policyArgv.dispatch;
   const result = await runPython(

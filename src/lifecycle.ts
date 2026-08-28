@@ -1,4 +1,4 @@
-// Pi harness parity PR 2 (docs/plans/evaluate-harness-shift.md Step 4).
+// Extracted runtime; source attribution is recorded in the extraction-provenance fixture.
 //
 // Lifecycle dispatcher shim: forwards Pi lifecycle events to the configured
 // dispatch policy command per the event-mapping table.
@@ -15,17 +15,17 @@
 // per the manifest (unmapped, by design).
 
 import type {
-  ExtensionAPI,
-  ExtensionContext,
-  SessionStartEvent,
-  SessionShutdownEvent,
-  ToolResultEvent,
-  InputEvent,
-  AgentSettledEvent,
-  AgentEndEvent,
-  AgentStartEvent,
-  MessageStartEvent,
-} from "@earendil-works/pi-coding-agent";
+  PiAgentEndEvent as AgentEndEvent,
+  PiExtensionAPI as ExtensionAPI,
+  PiExtensionContext as ExtensionContext,
+  PiInputEvent as InputEvent,
+  PiMessageStartEvent as MessageStartEvent,
+  PiSessionShutdownEvent as SessionShutdownEvent,
+  PiToolResultEvent as ToolResultEvent,
+} from "./pi-types.js";
+type SessionStartEvent = Record<string, never>;
+type AgentSettledEvent = Record<string, never>;
+type AgentStartEvent = Record<string, never>;
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -54,6 +54,7 @@ import {
   DEFAULT_PROJECT_ADAPTER_V1,
   resolveProjectArgv,
   resolveProjectPath,
+  validateProjectAdapterV1,
 } from "./project-adapter.js";
 import type { ProjectAdapterV1 } from "./project-adapter.js";
 
@@ -145,24 +146,29 @@ async function refreshOperatorStatus(
   adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): Promise<void> {
   const command = adapter.lifecycleIntentArgv.operatorStatus;
-  const pr = await pi.exec(command[0], [...command.slice(1)], {
-    cwd,
-    timeout: adapter.timeouts.operatorStatusMs,
-  });
   let prUrl = "";
   let prState = "";
-  if (pr.code === 0 && pr.stdout.trim()) {
-    const data = JSON.parse(pr.stdout) as {
-      url?: string;
-      reviewDecision?: string;
-      statusCheckRollup?: Array<{ status?: string; conclusion?: string }>;
-    };
-    prUrl = data.url ?? "";
-    const checks = data.statusCheckRollup ?? [];
-    const ci = checks.some((check) => check.conclusion && !["SUCCESS", "SKIPPED"].includes(check.conclusion))
-      ? "CI failing"
-      : checks.some((check) => check.status !== "COMPLETED") ? "CI pending" : "CI green";
-    prState = data.reviewDecision ? `${ci}, ${data.reviewDecision.toLowerCase()}` : ci;
+  try {
+    const pr = await pi.exec(command[0], [...command.slice(1)], {
+      cwd,
+      timeout: adapter.timeouts.operatorStatusMs,
+    });
+    if (pr.code === 0 && pr.stdout.trim()) {
+      const data = JSON.parse(pr.stdout) as {
+        url?: string;
+        reviewDecision?: string;
+        statusCheckRollup?: Array<{ status?: string; conclusion?: string }>;
+      };
+      prUrl = data.url ?? "";
+      const checks = data.statusCheckRollup ?? [];
+      const ci = checks.some((check) => check.conclusion && !["SUCCESS", "SKIPPED"].includes(check.conclusion))
+        ? "CI failing"
+        : checks.some((check) => check.status !== "COMPLETED") ? "CI pending" : "CI green";
+      prState = data.reviewDecision ? `${ci}, ${data.reviewDecision.toLowerCase()}` : ci;
+    }
+  } catch {
+    // Operator-status rendering is advisory. Policy dispatch and session
+    // startup must continue when its command is unavailable or malformed.
   }
   ctx.ui.setStatus(
     "harness-links",
@@ -2039,7 +2045,7 @@ function readPendingSummary(
  */
 export function toolResponseFromEvent(event: ToolResultEvent): Record<string, unknown> {
   const text = event.content
-    .map((item) => (item.type === "text" ? item.text : `[${item.type}]`))
+    .map((item) => (item.type === "text" ? (item.text ?? "") : `[${item.type}]`))
     .join("");
   return { text, isError: event.isError };
 }
@@ -2110,7 +2116,7 @@ export const STOP_DISPATCH_FAILURE_RELEASE_THRESHOLD = 3;
 
 export interface LifecycleHandlerDeps {
   readonly runDispatch: RunDispatch;
-  readonly adapter?: ProjectAdapterV1;
+  readonly adapter: ProjectAdapterV1;
   /** Writes the blocked color before Pi is asked to launch a re-engagement. */
   readonly beforeReengagement?: () => Promise<void>;
   readonly sendUserMessage: (
@@ -2140,11 +2146,18 @@ export interface LifecycleHandlers {
  * stubbed `runDispatch` (bead AC: a runnable behavioral test).
  */
 export function createLifecycleHandlers(deps: LifecycleHandlerDeps): LifecycleHandlers {
-  const adapter = deps.adapter ?? DEFAULT_PROJECT_ADAPTER_V1;
+  const adapter = validateProjectAdapterV1(deps.adapter);
   let reengageCount = 0;
   let stopDispatchFailureCount = 0;
   let budgetCwd = "";
   let budgetSessionId = "";
+  const fallbackSessionId = `pi-lifecycle-${randomUUID()}`;
+
+  function withSessionIdentity(payload: Record<string, unknown>): Record<string, unknown> {
+    return typeof payload.session_id === "string" && payload.session_id
+      ? payload
+      : { ...payload, session_id: fallbackSessionId };
+  }
 
   function persistBudget(mutation: LifecycleBudgetMutation = {}): LifecycleBudgetUpdate | undefined {
     const updated = updateLifecycleBudget(budgetCwd, budgetSessionId, mutation, adapter);
@@ -2156,7 +2169,9 @@ export function createLifecycleHandlers(deps: LifecycleHandlerDeps): LifecycleHa
   }
 
   function completionBlock(payload: Record<string, unknown>, message: string): PendingCompletionBlock {
-    const sessionId = typeof payload.session_id === "string" && payload.session_id ? payload.session_id : "unknown";
+    const sessionId = typeof payload.session_id === "string" && payload.session_id
+      ? payload.session_id
+      : fallbackSessionId;
     const dispatchId =
       typeof payload.dispatch_id === "string" && payload.dispatch_id
         ? payload.dispatch_id
@@ -2192,6 +2207,7 @@ export function createLifecycleHandlers(deps: LifecycleHandlerDeps): LifecycleHa
     cwd: string,
     payload: Record<string, unknown>,
   ): Promise<DispatchResult> {
+    payload = withSessionIdentity(payload);
     budgetCwd = cwd;
     budgetSessionId = typeof payload.session_id === "string" ? payload.session_id : "";
     const persisted = readLifecycleBudget(budgetCwd, budgetSessionId, adapter);
@@ -2206,6 +2222,7 @@ export function createLifecycleHandlers(deps: LifecycleHandlerDeps): LifecycleHa
     cwd: string,
     payload: Record<string, unknown>,
   ): Promise<DispatchResult> {
+    payload = withSessionIdentity(payload);
     const result = await deps.runDispatch("SessionEnd", cwd, payload, adapter);
     surfaceTeardownWarnings("SessionEnd", result);
     if (payload.reason === "quit") {
@@ -2219,6 +2236,7 @@ export function createLifecycleHandlers(deps: LifecycleHandlerDeps): LifecycleHa
   }
 
   async function onToolResult(cwd: string, payload: Record<string, unknown>): Promise<void> {
+    payload = withSessionIdentity(payload);
     const result = await deps.runDispatch("PostToolUse", cwd, payload, adapter);
     if (result.block) {
       await deps.sendMessage(result.block_reason);
@@ -2231,6 +2249,7 @@ export function createLifecycleHandlers(deps: LifecycleHandlerDeps): LifecycleHa
   }
 
   async function onInput(cwd: string, payload: Record<string, unknown>): Promise<void> {
+    payload = withSessionIdentity(payload);
     // A manual prompt starts a fresh unit of work. Pi also emits input for
     // extension-injected re-engagement, which must preserve the automatic
     // Stop-dispatch failure state until the retry settles.
@@ -2333,6 +2352,7 @@ export function createLifecycleHandlers(deps: LifecycleHandlerDeps): LifecycleHa
     cwd: string,
     payload: Record<string, unknown>,
   ): Promise<AgentSettledOutcome> {
+    payload = withSessionIdentity(payload);
     const sessionId = typeof payload.session_id === "string" ? payload.session_id : "";
     const branchName = currentBranchName(cwd);
     const payloadStopOrder = payload.stop_order;
@@ -2473,10 +2493,11 @@ export function createLifecycleHandlers(deps: LifecycleHandlerDeps): LifecycleHa
   };
 }
 
-export default function lifecycle(
+export function registerLifecycle(
   pi: ExtensionAPI,
-  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
+  adapter: ProjectAdapterV1,
 ): void {
+  adapter = validateProjectAdapterV1(adapter);
   let projectCwd = process.cwd();
   let currentSessionId = "unknown";
   let currentRuntimeId = randomUUID();
@@ -2804,9 +2825,8 @@ export default function lifecycle(
       ),
     );
     replayPendingBlockOnce();
-    // Pi harness parity PR 3 (plan Step 8): a durable, greppable marker the
-    // A launch smoke check can look for this durable marker in the session
-    // file to prove this extension actually loaded and ran. This
+    // A durable, greppable marker lets project smoke checks prove this
+    // extension actually loaded and ran. This
     // call is on the OTHER side of the `await` above from the SessionStart
     // dispatch to python — the exact window a drive-run reproduced the
     // stale-runtime throw in (see `safePiCall`) — so it needs the same guard.
@@ -2962,4 +2982,16 @@ export default function lifecycle(
       ),
     );
   });
+}
+
+/**
+ * Pi-compatible package entry point. Loading the package directly is inert;
+ * a project shim activates policy only by supplying its validated adapter.
+ */
+export default function lifecycle(
+  pi: ExtensionAPI,
+  adapter?: ProjectAdapterV1,
+): void {
+  if (adapter === undefined) return;
+  registerLifecycle(pi, adapter);
 }

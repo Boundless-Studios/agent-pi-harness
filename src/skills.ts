@@ -1,4 +1,4 @@
-// Pi harness parity PR 2 (docs/plans/evaluate-harness-shift.md Step 4 + 5).
+// Extracted runtime; source attribution is recorded in the extraction-provenance fixture.
 //
 // `resources_discover` handler: contributes each configured skill-root path
 // for every entry in the compatibility manifest whose status is not
@@ -8,12 +8,12 @@
 // package root (only ExtensionAPI's `on("resources_discover", ...)` overload
 // carries them internally) — the handler below relies on contextual typing
 // from that overload instead of naming the types directly.
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { PiExtensionAPI as ExtensionAPI } from "./pi-types.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  DEFAULT_PROJECT_ADAPTER_V1,
   resolveProjectPath,
+  validateProjectAdapterV1,
 } from "./project-adapter.js";
 import type { ProjectAdapterV1 } from "./project-adapter.js";
 
@@ -50,7 +50,7 @@ export function loadSkillCompatManifest(manifestPath: string): SkillCompatManife
 export function contributedSkillPaths(
   manifest: SkillCompatManifest,
   worktreeRoot: string,
-  skillRoots: readonly string[] = DEFAULT_PROJECT_ADAPTER_V1.skillRoots,
+  skillRoots: readonly string[],
 ): string[] {
   return manifest.skills
     .filter((entry) => entry.status !== "claude-only")
@@ -59,27 +59,33 @@ export function contributedSkillPaths(
     );
 }
 
-export default function skills(
+export function registerSkills(
   pi: ExtensionAPI,
-  adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
+  adapter: ProjectAdapterV1,
 ): void {
+  const validatedAdapter = validateProjectAdapterV1(adapter);
   pi.on("resources_discover", (_event, ctx) => {
     const manifestPath = join(
-      resolveProjectPath(ctx.cwd, adapter.projectPaths.configRoot),
-      adapter.projectPaths.skillManifestFile,
+      resolveProjectPath(ctx.cwd, validatedAdapter.projectPaths.configRoot),
+      validatedAdapter.projectPaths.skillManifestFile,
     );
     try {
       const manifest = loadSkillCompatManifest(manifestPath);
-      return { skillPaths: contributedSkillPaths(manifest, ctx.cwd, adapter.skillRoots) };
+      return { skillPaths: contributedSkillPaths(manifest, ctx.cwd, validatedAdapter.skillRoots) };
     } catch {
       return {};
     }
   });
 
   pi.on("session_start", () => {
-    // Pi harness parity PR 3 (plan Step 8): a durable, greppable marker the
-    // A launch smoke check can look for this durable marker in the session
-    // file to prove this extension actually loaded and ran.
+    // A durable, greppable marker lets project smoke checks prove this
+    // extension actually loaded and ran.
     pi.appendEntry("agent-pi-harness-smoke", { extension: "agent-pi-harness-skills" });
   });
+}
+
+/** Inert unless a project shim supplies an explicit adapter. */
+export default function skills(pi: ExtensionAPI, adapter?: ProjectAdapterV1): void {
+  if (adapter === undefined) return;
+  registerSkills(pi, adapter);
 }

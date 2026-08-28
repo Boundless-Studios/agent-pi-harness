@@ -55,6 +55,7 @@ import {
   tabColorForState,
   toolResponseFromEvent,
 } from "../src/lifecycle.js";
+import lifecycle from "../src/lifecycle.js";
 import type { AgentSettledOutcome, DispatchResult } from "../src/lifecycle.js";
 import type { ToolResultEvent } from "@earendil-works/pi-coding-agent";
 import { GAIA_FIXTURE_ADAPTER } from "./fixtures/gaia-adapter.js";
@@ -82,8 +83,60 @@ function withGaiaAdapter<T extends (...args: any[]) => any>(fn: T, adapterIndex:
   }) as T;
 }
 
-const createLifecycleHandlers = (deps: Parameters<typeof createLifecycleHandlersBase>[0]) =>
+type TestLifecycleHandlerDeps = Omit<Parameters<typeof createLifecycleHandlersBase>[0], "adapter">;
+const createLifecycleHandlers = (deps: TestLifecycleHandlerDeps) =>
   createLifecycleHandlersBase({ ...deps, adapter: GAIA_FIXTURE_ADAPTER });
+
+test("agent_settled policy handlers require an explicit project adapter", () => {
+  assert.throws(
+    () =>
+      createLifecycleHandlersBase({
+        runDispatch: async () => stubDispatchResult({}),
+        sendUserMessage: () => undefined,
+        sendMessage: () => undefined,
+        appendEntry: () => undefined,
+      } as any),
+    /adapter/i,
+  );
+});
+
+test("lifecycle registration requires an explicit project adapter", () => {
+  let registrations = 0;
+  assert.doesNotThrow(() =>
+    lifecycle({ on: () => { registrations += 1; } } as any),
+  );
+  assert.equal(registrations, 0);
+});
+
+test("agent_settled fallback identities stay stable and do not alias across runtimes", async () => {
+  const firstPayloads: Record<string, unknown>[] = [];
+  const secondPayloads: Record<string, unknown>[] = [];
+  const firstCwd = mkdtempSync(join(tmpdir(), "pi-first-runtime-"));
+  const secondCwd = mkdtempSync(join(tmpdir(), "pi-second-runtime-"));
+  const buildHandlers = (payloads: Record<string, unknown>[]) =>
+    createLifecycleHandlers({
+      runDispatch: async (_event, _cwd, payload) => {
+        payloads.push(payload);
+        return stubDispatchResult({});
+      },
+      sendUserMessage: () => undefined,
+      sendMessage: () => undefined,
+      appendEntry: () => undefined,
+    });
+  try {
+    const first = buildHandlers(firstPayloads);
+    const second = buildHandlers(secondPayloads);
+    await first.onAgentSettled(firstCwd, {});
+    await first.onAgentSettled(firstCwd, {});
+    await second.onAgentSettled(secondCwd, {});
+    assert.equal(firstPayloads[0].session_id, firstPayloads[1].session_id);
+    assert.notEqual(firstPayloads[0].session_id, secondPayloads[0].session_id);
+    assert.match(String(firstPayloads[0].session_id), /^pi-lifecycle-/);
+  } finally {
+    rmSync(firstCwd, { recursive: true, force: true });
+    rmSync(secondCwd, { recursive: true, force: true });
+  }
+});
 const clearActiveTurn = withGaiaAdapter(clearActiveTurnBase, 4);
 const markPendingBlockDelivered = withGaiaAdapter(markPendingBlockDeliveredBase, 4);
 const persistLifecycleBudget = withGaiaAdapter(persistLifecycleBudgetBase, 4);

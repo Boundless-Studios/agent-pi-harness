@@ -1,4 +1,4 @@
-// Pi harness parity PR 2 (docs/plans/evaluate-harness-shift.md Step 4).
+// Extracted runtime; source attribution is recorded in the extraction-provenance fixture.
 //
 // Resolves the active model id and context-window size for
 // the lifecycle PostToolUse dispatch payload, which the response-budget
@@ -10,7 +10,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { PiExtensionContext as ExtensionContext } from "../pi-types.js";
 import {
   DEFAULT_PROJECT_ADAPTER_V1,
   resolveProjectPath,

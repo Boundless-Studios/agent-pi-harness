@@ -1,20 +1,20 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 
-interface HistoricalModule {
+interface ProvenanceModule {
   readonly historicalPath: string;
   readonly extractedPath: string;
   readonly historicalSha256: string;
   readonly expectedExports: readonly string[];
 }
 
-interface HistoricalParityFixture {
+interface ExtractionProvenanceFixture {
   readonly sourceRepository: string;
   readonly sourceCommitExpression: string;
   readonly sourceCommit: string;
-  readonly modules: readonly HistoricalModule[];
+  readonly modules: readonly ProvenanceModule[];
 }
 
 interface PackageManifest {
@@ -25,8 +25,8 @@ interface PackageManifest {
 }
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
-const fixturePath = fileURLToPath(new URL("./fixtures/historical-parity.json", import.meta.url));
-const fixture = JSON.parse(readFileSync(fixturePath, "utf-8")) as HistoricalParityFixture;
+const fixturePath = fileURLToPath(new URL("./fixtures/extraction-provenance.json", import.meta.url));
+const fixture = JSON.parse(readFileSync(fixturePath, "utf-8")) as ExtractionProvenanceFixture;
 const packageManifest = JSON.parse(
   readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf-8"),
 ) as PackageManifest;
@@ -102,10 +102,10 @@ test("Pi is an exact peer contract without a bundled runtime copy", () => {
 });
 
 test("public runtime sources do not claim Gaia-owned integration identities", () => {
-  for (const module of fixture.modules) {
-    const source = readFileSync(`${repositoryRoot}${module.extractedPath}`, "utf-8");
-    assert.doesNotMatch(source, /gaia/i, `${module.extractedPath} contains project branding`);
+  const sourceRoot = `${repositoryRoot}src`;
+  for (const relativePath of readdirSync(sourceRoot, { recursive: true })) {
+    if (typeof relativePath !== "string" || !relativePath.endsWith(".ts")) continue;
+    const source = readFileSync(`${sourceRoot}/${relativePath}`, "utf-8");
+    assert.doesNotMatch(source, /gaia/i, `src/${relativePath} contains project branding`);
   }
-  const adapterSource = readFileSync(`${repositoryRoot}src/project-adapter.ts`, "utf-8");
-  assert.doesNotMatch(adapterSource, /gaia/i, "src/project-adapter.ts contains project branding");
 });

@@ -7,19 +7,19 @@
       "historicalPath": ".pi/extensions/gaia-lifecycle.ts",
       "extractedPath": "src/lifecycle.ts",
       "historicalSha256": "c68a2b5da58f0f9b8a40c1680d7b7496c8307e640cfc764431c8d028c5aad9cf",
-      "expectedExports": ["createLifecycleHandlers", "persistPendingBlock", "tabColorForState"]
+      "expectedExports": ["createLifecycleHandlers", "persistPendingBlock", "registerLifecycle", "tabColorForState"]
     },
     {
       "historicalPath": ".pi/extensions/gaia-skills.ts",
       "extractedPath": "src/skills.ts",
       "historicalSha256": "22f91551ca7e723763ce14e44f5790a9bf149bdc74d897a0393bcfe0205f79df",
-      "expectedExports": ["contributedSkillPaths", "loadSkillCompatManifest", "default"]
+      "expectedExports": ["contributedSkillPaths", "loadSkillCompatManifest", "registerSkills", "default"]
     },
     {
       "historicalPath": ".pi/extensions/gaia-warden.ts",
       "extractedPath": "src/warden.ts",
       "historicalSha256": "48c9a561efedbe052435fc1f3fe662a19346b37099b2f59d86a71c7f077667bb",
-      "expectedExports": ["createWardenHandlers", "couldMatchAnyPreToolUseSpec", "default"]
+      "expectedExports": ["createWardenHandlers", "registerWarden", "default"]
     },
     {
       "historicalPath": ".pi/extensions/lib/dispatch.ts",

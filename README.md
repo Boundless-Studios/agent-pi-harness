@@ -2,7 +2,9 @@
 
 `@boundless-studios/agent-pi-harness` is a portable runtime for Pi lifecycle,
 policy, skills, and Python-hook integrations. Project-specific paths and
-commands are supplied through the frozen `ProjectAdapterV1` contract.
+trusted commands are supplied through the frozen `ProjectAdapterV1` contract.
+Loading an extension entry point without an adapter is inert; a project shim
+must pass an adapter to activate policy.
 
 ```sh
 npm install @boundless-studios/agent-pi-harness
@@ -62,6 +64,11 @@ npm pack --dry-run
 
 The runtime originates from Gaia parent revision
 `a6fafb8c4c^` (`198ca51c8775eef0942e494f3fce363f2edc8558`); the historical
-parity fixture in `test/fixtures/historical-parity.json` records that source
+provenance fixture in `test/fixtures/extraction-provenance.json` records that source
 attribution. The package now owns its public exports and behavioral tests; it
 does not pin evolving package sources to hashes from the extraction date.
+
+Adapter argv values are trusted project configuration, not a command-sandbox
+boundary. Validation enforces structure, non-empty arguments, control-character
+rejection, and explicit executable resolution; projects remain responsible for
+the commands they configure.
