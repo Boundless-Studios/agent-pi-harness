@@ -53,6 +53,26 @@ try {
     ],
     { cwd: consumerRoot, stdio: "inherit" },
   );
+  // Pi's public ExtensionAPI declaration reaches optional provider type
+  // packages that are not installed by its base package. Install those type
+  // prerequisites so this smoke can exercise Pi's real API with lib checking
+  // enabled instead of masking the boundary behind skipLibCheck.
+  execFileSync(
+    "npm",
+    [
+      "install",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund",
+      "--no-package-lock",
+      "--prefer-offline",
+      "undici-types@8.3.0",
+      "@modelcontextprotocol/sdk@1.25.2",
+      "@types/node@24.10.0",
+      "typescript@5.9.3",
+    ],
+    { cwd: consumerRoot, stdio: "inherit" },
+  );
 
   const installedRoot = join(
     consumerRoot,
@@ -115,7 +135,44 @@ try {
     .map((specifier, index) => `import * as entry${index} from ${JSON.stringify(specifier)};`)
     .join("\n");
   const typeUses = specifiers.map((_specifier, index) => `void entry${index};`).join("\n");
-  writeFileSync(join(consumerRoot, "index.ts"), `${typeImports}\n${typeUses}\n`);
+  writeFileSync(
+    join(consumerRoot, "index.ts"),
+    `${typeImports}
+${typeUses}
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import lifecycle, { registerLifecycle } from "@boundless-studios/agent-pi-harness";
+import skills, { registerSkills } from "@boundless-studios/agent-pi-harness/skills";
+import warden, { registerWarden } from "@boundless-studios/agent-pi-harness/warden";
+import { createProjectAdapterV1 } from "@boundless-studios/agent-pi-harness/project-adapter";
+
+declare const pi: ExtensionAPI;
+const adapter = createProjectAdapterV1({
+  version: 1,
+  projectPaths: {
+    stateRoot: ".state",
+    configRoot: "config",
+    modelsFile: "models.json",
+    skillManifestFile: "skills.json",
+  },
+  policyArgv: {
+    gate: { script: "hooks/gate.py", argv: [] },
+    dispatch: { script: "hooks/dispatch.py", argv: [] },
+  },
+  skillRoots: [".skills"],
+  lifecycleIntentArgv: { tabColor: ["true"], operatorStatus: ["true"] },
+  timeouts: { policyMs: 1, tabColorMs: 1, operatorStatusMs: 1 },
+  sessionIdEnv: "SESSION_ID",
+  modelProvider: "provider",
+});
+
+lifecycle(pi, adapter);
+warden(pi, adapter);
+skills(pi, adapter);
+registerLifecycle(pi, adapter);
+registerWarden(pi, adapter);
+registerSkills(pi, adapter);
+`,
+  );
   writeFileSync(
     join(consumerRoot, "tsconfig.json"),
     JSON.stringify({
@@ -131,7 +188,7 @@ try {
     }),
   );
   execFileSync(
-    join(repositoryRoot, "node_modules", ".bin", "tsc"),
+    join(consumerRoot, "node_modules", ".bin", "tsc"),
     ["--project", "tsconfig.json"],
     { cwd: consumerRoot, stdio: "inherit" },
   );

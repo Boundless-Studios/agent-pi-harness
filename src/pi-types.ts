@@ -22,11 +22,20 @@ export interface PiExecResult {
 }
 
 export interface PiExtensionAPI {
-  on(event: string, handler: (...args: any[]) => unknown): void;
+  on(event: "resources_discover", handler: (...args: any[]) => unknown): void;
+  on(event: "session_start", handler: (...args: any[]) => unknown): void;
+  on(event: "session_shutdown", handler: (...args: any[]) => unknown): void;
+  on(event: "agent_start", handler: (...args: any[]) => unknown): void;
+  on(event: "agent_end", handler: (...args: any[]) => unknown): void;
+  on(event: "agent_settled", handler: (...args: any[]) => unknown): void;
+  on(event: "message_start", handler: (...args: any[]) => unknown): void;
+  on(event: "tool_call", handler: (...args: any[]) => unknown): void;
+  on(event: "tool_result", handler: (...args: any[]) => unknown): void;
+  on(event: "input", handler: (...args: any[]) => unknown): void;
   exec(
     command: string,
-    argv: readonly string[],
-    options: { readonly cwd: string; readonly timeout: number },
+    argv: string[],
+    options?: { readonly cwd?: string; readonly timeout?: number },
   ): Promise<PiExecResult>;
   appendEntry(customType: string, data?: unknown): void;
   sendMessage(message: {
