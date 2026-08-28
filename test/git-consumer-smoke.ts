@@ -44,7 +44,22 @@ try {
   if (existsSync(join(installedRoot, "node_modules"))) {
     throw new Error("git dependency retained build-only or nested runtime dependencies");
   }
-  await import("@boundless-studios/agent-pi-harness");
+  execFileSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      [
+        'import { fileURLToPath } from "node:url";',
+        'import { join } from "node:path";',
+        'const resolved = fileURLToPath(import.meta.resolve("@boundless-studios/agent-pi-harness"));',
+        'const expectedRoot = join(process.cwd(), "node_modules", "@boundless-studios", "agent-pi-harness");',
+        'if (!resolved.startsWith(`${expectedRoot}/`)) throw new Error(`resolved outside consumer: ${resolved}`);',
+        "await import(resolved);",
+      ].join("\n"),
+    ],
+    { cwd: consumerRoot, stdio: "inherit" },
+  );
 } finally {
   rmSync(temporaryRoot, { recursive: true, force: true });
 }

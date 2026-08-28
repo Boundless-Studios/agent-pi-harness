@@ -74,9 +74,9 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
     "prepare": "npm run build",
-    "prepack": "npm run build",
     "consumer-smoke": "tsx test/consumer-smoke.ts",
-    "git-consumer-smoke": "tsx test/git-consumer-smoke.ts"
+    "git-consumer-smoke": "tsx test/git-consumer-smoke.ts",
+    "clean-pack-smoke": "tsx test/clean-pack-smoke.ts"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "0.84.2"
