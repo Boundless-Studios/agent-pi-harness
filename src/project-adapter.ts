@@ -117,12 +117,17 @@ function assertLifecycleIntentArgv(value: unknown, field: string): asserts value
   const usesShellCommand =
     executableName !== undefined &&
     ["sh", "bash", "zsh", "dash"].includes(executableName) &&
-    argv.includes("-c");
-  const usesInterpreterCommand =
-    executableName !== undefined &&
-    ["python", "python3", "node"].includes(executableName) &&
-    argv.some((argument) => argument === "-c" || argument === "-e");
-  if (usesShellCommand || usesInterpreterCommand) {
+    argv.some((argument) => argument.startsWith("-c"));
+  const usesPythonCommand =
+    (executableName === "python" || executableName === "python3") &&
+    argv.some((argument) => argument.startsWith("-c"));
+  const usesNodeCommand =
+    executableName === "node" &&
+    argv.some(
+      (argument) =>
+        argument.startsWith("-e") || argument === "--eval" || argument.startsWith("--eval="),
+    );
+  if (usesShellCommand || usesPythonCommand || usesNodeCommand) {
     throw new TypeError(`${field} must not use a shell or interpreter command string`);
   }
 }

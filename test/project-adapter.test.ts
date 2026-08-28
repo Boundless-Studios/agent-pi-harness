@@ -181,6 +181,25 @@ test("project adapter validation requires explicit executable resolution and rej
       } as unknown),
     /shell/,
   );
+  for (const argv of [
+    ["bash", "-ctrue"],
+    ["python", "-cprint('unsafe')"],
+    ["node", "-eprocess.exit()"],
+    ["node", "--eval", "process.exit()"],
+    ["node", "--eval=process.exit()"],
+  ]) {
+    assert.throws(
+      () =>
+        parseProjectAdapterV1({
+          ...validAdapter,
+          lifecycleIntentArgv: {
+            ...validAdapter.lifecycleIntentArgv,
+            tabColor: argv,
+          },
+        } as unknown),
+      /shell/,
+    );
+  }
   assert.doesNotThrow(() =>
     parseProjectAdapterV1({
       ...validAdapter,
@@ -299,6 +318,10 @@ test("neutral operator status accepts an empty command result during session sta
     await sessionStart({}, context);
     assert.deepEqual(statuses, ["worktree: file://" + cwd, "worktree: file://" + cwd]);
   } finally {
-    rmSync(cwd, { recursive: true, force: true });
+    try {
+      await handlers.get("session_shutdown")?.({ reason: "switch" }, context);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   }
 });
