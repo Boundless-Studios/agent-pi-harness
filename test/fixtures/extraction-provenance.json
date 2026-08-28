@@ -1,0 +1,49 @@
+{
+  "sourceRepository": "https://github.com/Boundless-Studios/gaia-free",
+  "sourceCommitExpression": "a6fafb8c4c^",
+  "sourceCommit": "198ca51c8775eef0942e494f3fce363f2edc8558",
+  "modules": [
+    {
+      "historicalPath": ".pi/extensions/gaia-lifecycle.ts",
+      "extractedPath": "src/lifecycle.ts",
+      "historicalSha256": "c68a2b5da58f0f9b8a40c1680d7b7496c8307e640cfc764431c8d028c5aad9cf",
+      "expectedExports": ["createLifecycleHandlers", "persistPendingBlock", "registerLifecycle", "tabColorForState"]
+    },
+    {
+      "historicalPath": ".pi/extensions/gaia-skills.ts",
+      "extractedPath": "src/skills.ts",
+      "historicalSha256": "22f91551ca7e723763ce14e44f5790a9bf149bdc74d897a0393bcfe0205f79df",
+      "expectedExports": ["contributedSkillPaths", "loadSkillCompatManifest", "registerSkills", "default"]
+    },
+    {
+      "historicalPath": ".pi/extensions/gaia-warden.ts",
+      "extractedPath": "src/warden.ts",
+      "historicalSha256": "48c9a561efedbe052435fc1f3fe662a19346b37099b2f59d86a71c7f077667bb",
+      "expectedExports": ["createWardenHandlers", "registerWarden", "default"]
+    },
+    {
+      "historicalPath": ".pi/extensions/lib/dispatch.ts",
+      "extractedPath": "src/lib/dispatch.ts",
+      "historicalSha256": "fd765e5165963daec34b58ce8091d57d38478febd38a0bfcfa81bd0df3a58888",
+      "expectedExports": ["runDispatch", "isDispatchResult", "collectAdvisoryText"]
+    },
+    {
+      "historicalPath": ".pi/extensions/lib/model-context.ts",
+      "extractedPath": "src/lib/model-context.ts",
+      "historicalSha256": "651ccdd0ee5a17364345991c47e565a7ca3239a2940dc3833bb9ba8e2f837b00",
+      "expectedExports": ["resolveModelContext"]
+    },
+    {
+      "historicalPath": ".pi/extensions/lib/session.ts",
+      "extractedPath": "src/lib/session.ts",
+      "historicalSha256": "6bcfd4cfde3011fd08f21de3050e3a762e014bf18fe6b3c5fc2078adad421969",
+      "expectedExports": ["resolveSessionId"]
+    },
+    {
+      "historicalPath": "packages/pi-governance/src/run-python.ts",
+      "extractedPath": "src/run-python.ts",
+      "historicalSha256": "c15aa8ab04625ceb8ba1e206a3b9efcad5177c5cad22938a6d5f5b44427cf813",
+      "expectedExports": ["runPython"]
+    }
+  ]
+}
