@@ -91,3 +91,35 @@ test("resolveModelContext rejects malformed nested model JSON instead of throwin
     rmSync(cwd, { recursive: true, force: true });
   }
 });
+
+test("resolveModelContext uses the active runtime model for fallback lookup", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "pi-model-context-"));
+  try {
+    const configRoot = join(cwd, "config");
+    mkdirSync(configRoot);
+    writeFileSync(
+      join(configRoot, "models.json"),
+      JSON.stringify({
+        providers: {
+          example: {
+            models: [
+              { id: "launch-model", contextWindow: 200_000 },
+              { id: "switched-model", contextWindow: 32_768 },
+            ],
+          },
+        },
+      }),
+    );
+    const context = {
+      model: { id: "switched-model" },
+      getContextUsage: () => undefined,
+    } as any;
+
+    assert.deepEqual(
+      withLaunchEnvironment(() => resolveModelContext(cwd, context, adapter)),
+      { model: "switched-model", contextWindow: 32_768 },
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});

@@ -505,7 +505,12 @@ function currentBranchName(cwd: string): string | undefined {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
-    return branch || undefined;
+    if (branch) return branch;
+    const head = execFileSync("git", ["-C", cwd, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return head ? `detached:${head}` : undefined;
   } catch {
     return undefined;
   }
@@ -679,7 +684,13 @@ function reclaimStaleLifecycleBudgetLock(
         rmSync(reclaimPath, { force: true });
       }
     } catch {
-      // Another claimant is still coordinating this exact stale lock.
+      try {
+        if (Date.now() - statSync(reclaimPath).mtimeMs >= LIFECYCLE_BUDGET_LOCK_STALE_MS) {
+          rmSync(reclaimPath, { force: true });
+        }
+      } catch {
+        // Another claimant may have removed the marker concurrently.
+      }
     }
     return false;
   }
@@ -2000,24 +2011,29 @@ export function acknowledgePendingBlockForPrompt(
 
 function pendingSummaryPath(
   cwd: string,
+  sessionId: string,
   adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): string {
-  return join(resolveProjectPath(cwd, adapter.projectPaths.stateRoot), "unclaimed-summary.txt");
+  const identity = createHash("sha256").update(sessionId).digest("hex");
+  return join(resolveProjectPath(cwd, adapter.projectPaths.stateRoot), `unclaimed-summary-${identity}.txt`);
 }
 
 function deliveredSummaryPath(
   cwd: string,
+  sessionId: string,
   adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): string {
-  return join(resolveProjectPath(cwd, adapter.projectPaths.stateRoot), "last-delivered-summary.txt");
+  const identity = createHash("sha256").update(sessionId).digest("hex");
+  return join(resolveProjectPath(cwd, adapter.projectPaths.stateRoot), `last-delivered-summary-${identity}.txt`);
 }
 
 function persistPendingSummary(
   cwd: string,
+  sessionId: string,
   summary: string,
   adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): void {
-  const path = pendingSummaryPath(cwd, adapter);
+  const path = pendingSummaryPath(cwd, sessionId, adapter);
   const temporary = `${path}.${process.pid}.tmp`;
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   writeFileSync(temporary, `${summary}\n`, { mode: 0o600 });
@@ -2026,10 +2042,11 @@ function persistPendingSummary(
 
 function readPendingSummary(
   cwd: string,
+  sessionId: string,
   adapter: ProjectAdapterV1 = DEFAULT_PROJECT_ADAPTER_V1,
 ): string | undefined {
   try {
-    return readFileSync(pendingSummaryPath(cwd, adapter), "utf8").trim() || undefined;
+    return readFileSync(pendingSummaryPath(cwd, sessionId, adapter), "utf8").trim() || undefined;
   } catch {
     return undefined;
   }
@@ -2263,6 +2280,11 @@ export function createLifecycleHandlers(deps: LifecycleHandlerDeps): LifecycleHa
     const result = await deps.runDispatch("UserPromptSubmit", cwd, payload, adapter);
     if (result.block) {
       await deps.sendMessage(result.block_reason);
+      return;
+    }
+    const advisory = collectAdvisoryText(result);
+    if (advisory) {
+      await deps.sendMessage(boundLength(advisory, ADVISORY_MAX_LENGTH));
     }
   }
 
@@ -2794,18 +2816,21 @@ export function registerLifecycle(
       activeTurnId = undefined;
       agentTurnActive = false;
     }
-    const pendingSummary = readPendingSummary(projectCwd, adapter);
+    const pendingSummary = readPendingSummary(projectCwd, currentSessionId, adapter);
+    if (pendingSummary) latestSummary = pendingSummary;
     if (
       pendingSummary &&
       safePiCall("replay final session summary", () =>
         pi.appendEntry("agent-pi-harness-final-session-summary", { summary: pendingSummary }),
       )
     ) {
-      rmSync(pendingSummaryPath(projectCwd, adapter), { force: true });
-      writeFileSync(deliveredSummaryPath(projectCwd, adapter), `${pendingSummary}\n`, { mode: 0o600 });
+      rmSync(pendingSummaryPath(projectCwd, currentSessionId, adapter), { force: true });
+      writeFileSync(deliveredSummaryPath(projectCwd, currentSessionId, adapter), `${pendingSummary}\n`, { mode: 0o600 });
     }
     ctx.ui.setStatus("harness-links", ctx.ui.theme.fg("accent", buildOperatorStatus(projectCwd)));
-    await refreshOperatorStatus(pi, ctx, projectCwd, adapter);
+    await safePiAsyncCall("initial operator status", () =>
+      refreshOperatorStatus(pi, ctx, projectCwd, adapter),
+    );
     await handlers.onSessionStart(projectCwd, {
       session_id: currentSessionId,
       cwd: projectCwd,
@@ -2848,15 +2873,15 @@ export function registerLifecycle(
     if (event.reason === "quit") {
       let deliveredSummary: string | undefined;
       try {
-        deliveredSummary = readFileSync(deliveredSummaryPath(projectCwd, adapter), "utf8").trim() || undefined;
+        deliveredSummary = readFileSync(deliveredSummaryPath(projectCwd, currentSessionId, adapter), "utf8").trim() || undefined;
       } catch {}
       if (deliveredSummary === latestSummary) return;
-      persistPendingSummary(projectCwd, latestSummary, adapter);
+      persistPendingSummary(projectCwd, currentSessionId, latestSummary, adapter);
       if (safePiCall("final session summary", () =>
         pi.appendEntry("agent-pi-harness-final-session-summary", { summary: latestSummary }),
       )) {
-        rmSync(pendingSummaryPath(projectCwd, adapter), { force: true });
-        writeFileSync(deliveredSummaryPath(projectCwd, adapter), `${latestSummary}\n`, { mode: 0o600 });
+        rmSync(pendingSummaryPath(projectCwd, currentSessionId, adapter), { force: true });
+        writeFileSync(deliveredSummaryPath(projectCwd, currentSessionId, adapter), `${latestSummary}\n`, { mode: 0o600 });
       }
       if (process.stderr.isTTY) ctx.ui.notify(`Session summary\n\n${latestSummary}`, "info");
     }
@@ -2869,12 +2894,13 @@ export function registerLifecycle(
     activeTurnId = undefined;
     agentTurnActive = readActiveTurn(projectCwd, currentSessionId, adapter) !== undefined;
     latestSummary = finalAssistantSummary(event.messages);
+    persistPendingSummary(projectCwd, currentSessionId, latestSummary, adapter);
     latestAgentRunNeedsAttention = agentRunNeedsAttention(event.messages);
     if (awaitingBlockDelivery) schedulePendingBlockReplayPoll();
   });
 
   pi.on("agent_start", async (_event: AgentStartEvent) => {
-    await safePiAsyncCall("agent start tab color", () =>
+    const tabColorUpdated = await safePiAsyncCall("agent start tab color", () =>
       setTabColor(
         pi,
         projectCwd,
@@ -2882,6 +2908,7 @@ export function registerLifecycle(
         adapter,
       ),
     );
+    if (!tabColorUpdated) return;
     refreshReplayBranchName();
     activeTurnId = randomUUID();
     agentTurnActive = true;
@@ -2957,6 +2984,7 @@ export function registerLifecycle(
     // agent_start event proves that work actually began.
     await handlers.onInput(projectCwd, {
       cwd: projectCwd,
+      session_id: currentSessionId,
       prompt: event.text,
       source: event.source,
       streamingBehavior: event.streamingBehavior,

@@ -22,6 +22,7 @@ export function runPython(
   timeoutMs?: number,
 ): Promise<RunPythonResult> {
   return new Promise((resolve) => {
+    let stdinError = "";
     const child = execFile(
       "python3",
       [scriptRelPath, ...argv],
@@ -31,10 +32,20 @@ export function runPython(
         if (error) {
           code = typeof error.code === "number" ? error.code : 1;
         }
-        resolve({ code, stdout, stderr });
+        resolve({
+          code: stdinError && code === 0 ? 1 : code,
+          stdout,
+          stderr: [stderr, stdinError].filter(Boolean).join("\n"),
+        });
       },
     );
-    child.stdin?.write(JSON.stringify(stdinJson));
-    child.stdin?.end();
+    child.stdin?.on("error", (error) => {
+      stdinError = error instanceof Error ? error.message : String(error);
+    });
+    try {
+      child.stdin?.end(JSON.stringify(stdinJson));
+    } catch (error) {
+      stdinError = error instanceof Error ? error.message : String(error);
+    }
   });
 }

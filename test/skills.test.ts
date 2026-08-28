@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import skills, { contributedSkillPaths } from "../src/skills.js";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import skills, { contributedSkillPaths, loadSkillCompatManifest } from "../src/skills.js";
 import type { SkillCompatManifest } from "../src/skills.js";
 import { GAIA_FIXTURE_ADAPTER } from "./fixtures/gaia-adapter.js";
 
@@ -35,6 +38,25 @@ test("agent-pi-harness-skills: an empty manifest contributes no paths", () => {
     contributedSkillPaths({ skills: [] }, "/worktree", GAIA_FIXTURE_ADAPTER.skillRoots),
     [],
   );
+});
+
+test("agent-pi-harness-skills: every manifest entry is validated", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "pi-skills-"));
+  const manifest = join(cwd, "skills.json");
+  try {
+    writeFileSync(
+      manifest,
+      JSON.stringify({
+        skills: [
+          { name: "valid", status: "loads-clean", markers: [], notes: "ok" },
+          { name: 42, status: "unknown", markers: [null], notes: false },
+        ],
+      }),
+    );
+    assert.throws(() => loadSkillCompatManifest(manifest), /compatibility manifest/);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
 });
 
 test("skills registration requires an explicit project adapter", () => {

@@ -33,7 +33,17 @@ export interface SkillCompatManifest {
 function isSkillCompatManifest(value: unknown): value is SkillCompatManifest {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
-  return Array.isArray(candidate.skills);
+  return Array.isArray(candidate.skills) && candidate.skills.every((entry) => {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return false;
+    const record = entry as Record<string, unknown>;
+    return (
+      typeof record.name === "string" &&
+      ["loads-clean", "needs-shim", "claude-only"].includes(String(record.status)) &&
+      Array.isArray(record.markers) &&
+      record.markers.every((marker) => typeof marker === "string") &&
+      typeof record.notes === "string"
+    );
+  });
 }
 
 export function loadSkillCompatManifest(manifestPath: string): SkillCompatManifest {

@@ -91,9 +91,10 @@ function lookupModelsJson(path: string, provider: string, modelId: string): Mode
 function resolveFromEnvAndModelsJson(
   cwd: string,
   adapter: ProjectAdapterV1,
+  runtimeModelId?: string,
 ): ModelContext {
   const provider = process.env.PI_LAUNCH_PROVIDER || adapter.modelProvider;
-  const modelId = process.env.PI_LAUNCH_MODEL || "";
+  const modelId = runtimeModelId || process.env.PI_LAUNCH_MODEL || "";
   const agentDir = process.env.PI_CODING_AGENT_DIR;
 
   const candidates = [
@@ -132,7 +133,7 @@ export function resolveModelContext(
   if (fromRuntime.model !== undefined && fromRuntime.contextWindow !== undefined) {
     return fromRuntime;
   }
-  const fromFallback = resolveFromEnvAndModelsJson(cwd, adapter);
+  const fromFallback = resolveFromEnvAndModelsJson(cwd, adapter, fromRuntime.model);
   return {
     model: fromRuntime.model ?? fromFallback.model,
     contextWindow: fromRuntime.contextWindow ?? fromFallback.contextWindow,

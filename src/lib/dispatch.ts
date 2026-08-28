@@ -69,7 +69,7 @@ export function boundLength(text: string, max: number): string {
  * stdout with exit 0) is still visible instead of silently dropped (PR 3535
  * review round 1 P1 finding 2). Returns "" when there is nothing to show. */
 export function collectAdvisoryText(result: DispatchResult): string {
-  const parts: string[] = [];
+  const parts: string[] = [...result.teardown_warnings];
   for (const entry of result.results) {
     if (typeof entry !== "object" || entry === null) continue;
     const record = entry as Record<string, unknown>;

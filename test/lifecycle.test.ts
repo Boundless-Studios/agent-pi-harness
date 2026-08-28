@@ -1447,6 +1447,36 @@ test("agent-pi-harness-lifecycle: only completion blocks receive durable dispatc
   assert.deepEqual(advisoryMessages, ["input blocked"]);
 });
 
+test("agent-pi-harness-lifecycle: PostToolUse dispatcher failures are visible", async () => {
+  const messages: string[] = [];
+  const handlers = createLifecycleHandlers({
+    runDispatch: async () => stubDispatchResult({ teardown_warnings: ["dispatch.py exited 1"] }),
+    sendUserMessage: () => {},
+    sendMessage: (content) => { messages.push(content); },
+    appendEntry: noopAppendEntry,
+  });
+
+  await handlers.onToolResult("/tmp/project", {});
+
+  assert.deepEqual(messages, ["dispatch.py exited 1"]);
+});
+
+test("agent-pi-harness-lifecycle: successful UserPromptSubmit advisories are visible", async () => {
+  const messages: string[] = [];
+  const handlers = createLifecycleHandlers({
+    runDispatch: async () => stubDispatchResult({
+      results: [{ hook: "prompt-policy", stdout: "use the narrow path", stderr: "" }],
+    }),
+    sendUserMessage: () => {},
+    sendMessage: (content) => { messages.push(content); },
+    appendEntry: noopAppendEntry,
+  });
+
+  await handlers.onInput("/tmp/project", { session_id: "session-1", prompt: "continue" });
+
+  assert.deepEqual(messages, ["[prompt-policy] use the narrow path"]);
+});
+
 test("agent-pi-harness-lifecycle: PR status refresh is limited to delivery-changing commands", () => {
   assert.equal(shouldRefreshOperatorStatus(fakeToolResultEvent({ input: { command: "git push" } })), true);
   assert.equal(
@@ -2745,16 +2775,51 @@ test("agent-pi-harness-lifecycle: replay polling reuses a session branch snapsho
 test("agent-pi-harness-lifecycle: input leaves tab color changes to agent_start", () => {
   const sourcePath = fileURLToPath(new URL("../src/lifecycle.ts", import.meta.url));
   const source = readFileSync(sourcePath, "utf-8");
-  const inputHandler = source.slice(source.indexOf('pi.on("input"'), source.indexOf('pi.on("agent_settled"'));
+  const inputHandler = source.slice(
+    source.indexOf('pi.on("input"'),
+    source.indexOf('pi.on("agent_settled"'),
+  );
 
   assert.doesNotMatch(inputHandler, /setTabColor\(pi, projectCwd, tabColorForState\("working"\)\)/);
   assert.match(inputHandler, /handlers\.onInput\(projectCwd/);
+  assert.match(inputHandler, /session_id:\s*currentSessionId/);
+});
+
+test("agent-pi-harness-lifecycle: startup operator status is stale-runtime guarded", () => {
+  const sourcePath = fileURLToPath(new URL("../src/lifecycle.ts", import.meta.url));
+  const source = readFileSync(sourcePath, "utf-8");
+  const sessionStart = source.slice(
+    source.indexOf('pi.on("session_start"'),
+    source.indexOf('pi.on("session_shutdown"'),
+  );
+  assert.match(sessionStart, /safePiAsyncCall\(\s*"initial operator status"/);
+});
+
+test("agent-pi-harness-lifecycle: stale agent_start exits before persisting turn state", () => {
+  const sourcePath = fileURLToPath(new URL("../src/lifecycle.ts", import.meta.url));
+  const source = readFileSync(sourcePath, "utf-8");
+  const handler = source.slice(
+    source.indexOf('pi.on("agent_start"'),
+    source.indexOf("function acknowledgeAwaitingBlock"),
+  );
+  assert.match(handler, /if \(!tabColorUpdated\) return/);
+  assert.ok(handler.indexOf("if (!tabColorUpdated) return") < handler.indexOf("persistActiveTurn("));
+});
+
+test("agent-pi-harness-lifecycle: summaries are persisted per session", () => {
+  const sourcePath = fileURLToPath(new URL("../src/lifecycle.ts", import.meta.url));
+  const source = readFileSync(sourcePath, "utf-8");
+  assert.match(source, /pendingSummaryPath\(\s*cwd:\s*string,\s*sessionId:\s*string/);
+  assert.match(source, /deliveredSummaryPath\(\s*cwd:\s*string,\s*sessionId:\s*string/);
 });
 
 test("agent-pi-harness-lifecycle: pending replay colors red before polling the replay", () => {
   const sourcePath = fileURLToPath(new URL("../src/lifecycle.ts", import.meta.url));
   const source = readFileSync(sourcePath, "utf-8");
-  const sessionStart = source.slice(source.indexOf('pi.on("session_start"'), source.indexOf('pi.on("session_shutdown"'));
+  const sessionStart = source.slice(
+    source.indexOf('pi.on("session_start"'),
+    source.indexOf('pi.on("session_shutdown"'),
+  );
 
   const colorIndex = sessionStart.indexOf('await safePiAsyncCall("session tab color"');
   const replayIndex = sessionStart.indexOf("replayPendingBlockOnce()");
